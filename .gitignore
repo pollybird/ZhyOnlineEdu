@@ -1,0 +1,45 @@
+# ── Python ──
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+dist/
+build/
+
+# ── Node / 前端 ──
+node_modules/
+web/dist/
+*.local
+
+# ── 环境与密钥（永不提交，见 §24.2）──
+.env
+*.pem
+*.key
+zhy-ffmpeg-sbom.local.json
+
+# ── 运行时 ──
+/run/zhy/
+*.log
+tmp/
+# 开发/本地 SQLite 库（迁移产物，不入库）
+zhy_edu.db
+zhy_edu.db-wal
+zhy_edu.db-shm
+
+# ── IDE / OS ──
+.idea/
+.vscode/
+.DS_Store
+
+# ── 计划文档（本地保留，不入库）──
+plan/
+
+# ── 测试 / spike 临时产物 ──
+spike/**/output/
+locust_reports/

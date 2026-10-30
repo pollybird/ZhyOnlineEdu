@@ -1,0 +1,92 @@
+# ZhyOnlineEdu · T1 档编排骨架（附录 G · V2.3）
+# 用法：cp .env.example .env 后 docker compose up
+# T0：单进程 api（web+flush 线程共存，ring 走内存 mmap，无 Redis）；
+# T2：api×2 + progress-flush×1（强制单实例/shard）+ Redis + PG 主从 + 独立转码机。
+services:
+  web:
+    image: zhyonlineedu/web:${ZHY_VERSION:-dev}
+    depends_on: [api]
+    ports: ["8080:8080"]
+
+  api:
+    image: zhyonlineedu/api:${ZHY_VERSION:-dev}
+    read_only: true
+    tmpfs: ["/tmp:size=256M,mode=1777"]
+    volumes:
+      - "progress_ring:/run/zhy/progress"
+      - "media_storage:/var/storage"  # source.bin / hls 产物（M2.4）
+    env_file: [.env]  # ZHY_DB_URL / JWT 密钥路径等由 .env 注入
+    environment:
+      - ZHY_ENV
+      - ZHY_DB_FLAVOR
+      - ZHY_PROGRESS_BUS
+      - ZHY_MEDIA_TTL_TS_SEC
+      - ZHY_STORAGE_LOCAL_DIR=/var/storage
+
+  progress-flush: # [V2.3] 单写者，与 api 共享 ring 卷；强制单实例
+    image: zhyonlineedu/api:${ZHY_VERSION:-dev}
+    entrypoint: ["python", "-m", "zhyonlineedu.workers.progress_flush"]
+    restart: always
+    volumes: ["progress_ring:/run/zhy/progress"]
+    env_file: [.env]  # 与 api 同库同 ring；ZHY_PROGRESS_RING_DIR 见 .env
+    environment:
+      - ZHY_ENV
+      - ZHY_DB_FLAVOR
+      - ZHY_PROGRESS_BUS
+      - ZHY_PROGRESS_RING_DIR=/run/zhy/progress
+    depends_on: [db]
+    deploy:
+      resources:
+        limits: { cpus: "0.5", memory: 256M }
+
+  transcode: # [V2.3] 沙箱 + cgroup 隔离（F7）
+    image: zhyonlineedu/api:${ZHY_VERSION:-dev}
+    entrypoint: ["python", "-m", "zhyonlineedu.workers.transcode"]
+    security_opt: ["seccomp=./deploy/ffmpeg/seccomp.json"]
+    read_only: true
+    tmpfs: ["/tmp/transcode:size=4G,mode=700"]
+    volumes:
+      - "media_storage:/var/storage"  # 只读写 source.bin 与 hls/staging
+    deploy:
+      resources:
+        limits: { cpus: "2", memory: 2G }
+        pids: 16
+    environment:
+      - ZHY_ENV
+      - ZHY_DB_FLAVOR
+      - ZHY_STORAGE_LOCAL_DIR=/var/storage
+      - ZHY_TRANSCODE_SANDBOX=bwrap
+
+  worker: # 通用 sys_task（导入/订单补偿/归档/进度对账）
+    image: zhyonlineedu/api:${ZHY_VERSION:-dev}
+    entrypoint: ["python", "-m", "zhyonlineedu.workers.celery"]
+    deploy:
+      resources:
+        limits: { cpus: "1", memory: 1G }
+
+  expire: # [M2.7] 账号/会员过期：每日 users.expire_hour（UTC，默认 02:00）
+    image: zhyonlineedu/api:${ZHY_VERSION:-dev}
+    entrypoint: ["python", "-m", "zhyonlineedu.workers.expire"]
+    restart: always
+    env_file: [.env]
+    environment:
+      - ZHY_ENV
+      - ZHY_DB_FLAVOR
+      - ZHY_USERS_EXPIRE_HOUR=2
+      - ZHY_USERS_EXPIRE_BATCH_SIZE=500
+    depends_on: [db]
+    deploy:
+      resources:
+        limits: { cpus: "0.2", memory: 256M }
+
+  db:
+    image: mysql:8 # 或 postgres:16 / opengauss:7.0-lts（ci:domestic 档）
+    volumes: ["db:/var/lib/mysql"]
+    environment:
+      - MYSQL_ROOT_PASSWORD
+      - MYSQL_DATABASE=zhy_edu
+
+volumes:
+  progress_ring: # 多 api + flush 共享；备份纳入 §19
+  media_storage: # source.bin / hls 产物；api 与 transcode 共享，备份纳入 §19
+  db:

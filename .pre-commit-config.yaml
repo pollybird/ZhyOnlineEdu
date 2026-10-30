@@ -1,0 +1,33 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff
+        entry: uv run ruff check --fix
+        language: system
+        types: [python]
+      - id: black
+        name: black
+        entry: uv run black
+        language: system
+        types: [python]
+      - id: mypy
+        name: mypy
+        entry: uv run mypy
+        language: system
+        pass_filenames: false
+      - id: check-dialect-compat
+        name: 方言裸 SQL 红线（§5.2）
+        entry: uv run python scripts/check_dialect_compat.py
+        language: system
+        pass_filenames: false
+      - id: check-progress-monotonic
+        name: 进度单调性红线（§4.2）
+        entry: uv run python scripts/check_progress_monotonic.py
+        language: system
+        pass_filenames: false
+      - id: export-openapi-check
+        name: OpenAPI 生成物校验（§15.4）
+        entry: uv run python scripts/export_openapi.py --check
+        language: system
+        pass_filenames: false

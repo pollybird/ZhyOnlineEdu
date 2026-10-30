@@ -1,0 +1,28 @@
+{
+  "comment": "ZhyOnlineEdu FFmpeg seccomp 白名单（F7 · §10.3.2.3 / §24.2）。M0 spike 实测收紧，禁止放宽到 defaultAction SCMP_ACT_ALLOW。",
+  "defaultAction": "SCMP_ACT_ERRNO",
+  "defaultErrnoRet": 1,
+  "architectures": ["SCMP_ARCH_X86_64", "SCMP_ARCH_AARCH64"],
+  "syscalls": [
+    {
+      "names": [
+        "read", "write", "openat", "close", "stat", "fstat", "lstat", "newfstatat",
+        "lseek", "mmap", "mprotect", "munmap", "brk", "rt_sigaction", "rt_sigprocmask",
+        "rt_sigreturn", "ioctl", "pread64", "pwrite64", "readv", "writev", "access",
+        "faccessat", "faccessat2", "pipe", "pipe2", "dup", "dup2", "dup3",
+        "sched_yield", "nanosleep", "clock_nanosleep", "getpid", "gettid",
+        "futex", "set_robust_list", "rseq", "exit", "exit_group", "wait4",
+        "clone", "clone3", "execve", "getrandom", "memfd_create", "fadvise64",
+        "truncate", "ftruncate", "renameat2", "unlink", "unlinkat", "mkdirat", "rmdir",
+        "getdents64", "readlink", "readlinkat", "getcwd", "umask", "prlimit64", "arch_prctl"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    },
+    {
+      "names": ["socket", "connect", "sendto", "recvfrom", "bind", "listen", "accept4"],
+      "action": "SCMP_ACT_ERRNO",
+      "errnoRet": 1,
+      "comment": "无网层：一律拒绝（§10.3.2.3 第三层）"
+    }
+  ]
+}

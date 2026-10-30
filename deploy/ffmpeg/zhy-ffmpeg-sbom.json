@@ -1,0 +1,8 @@
+{
+  "comment": "FFmpeg SBOM（§24.1/§24.2）：版本固定 + CVE 基线；doctor 启动校验 hash；osv-scanner 复扫结果附交付包。M5.3 进镜像层。",
+  "ffmpeg": { "version": "6.1.5", "build": "static", "sha256": "TODO-M5.3-登记" },
+  "ffprobe": { "version": "6.1.5", "sha256": "TODO-M5.3-登记" },
+  "bubblewrap": { "version": "0.11.0", "min": "0.8" },
+  "cve_baseline": { "scanner": "osv-scanner", "last_scan": null, "hits": 0 },
+  "metric": "zhy_ffmpeg_cve_hit"
+}

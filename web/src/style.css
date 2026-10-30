@@ -1,0 +1,315 @@
+:root {
+  --zhy-bg: #f5f7fa;
+  --zhy-border: #e4e7ed;
+  --zhy-text: #303133;
+  --zhy-text-muted: #909399;
+  --zhy-radius: 10px;
+  --zhy-shadow: 0 8px 24px rgb(0 0 0 / 6%);
+
+  font-family:
+    system-ui,
+    'Segoe UI',
+    'PingFang SC',
+    'Hiragino Sans GB',
+    'Microsoft YaHei',
+    sans-serif;
+  line-height: 1.6;
+  color: var(--zhy-text);
+  background: var(--zhy-bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--zhy-bg);
+}
+
+#app {
+  min-height: 100vh;
+}
+
+/* ── 框架页外壳（M1.7）──────────────────────────────────────────────── */
+.shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.shell-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 24px;
+  height: 60px;
+  background: #fff;
+  border-bottom: 1px solid var(--zhy-border);
+}
+
+.shell-brand {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+}
+
+.shell-spacer {
+  flex: 1;
+}
+
+.shell-user {
+  color: var(--zhy-text-muted);
+  font-size: 14px;
+}
+
+.shell-nav {
+  display: flex;
+  gap: 16px;
+  margin-left: 12px;
+  font-size: 14px;
+}
+
+.shell-nav a {
+  color: var(--zhy-text-muted);
+  text-decoration: none;
+}
+
+.shell-nav a.router-link-active {
+  color: var(--el-color-primary);
+  font-weight: 600;
+}
+
+.shell-main {
+  flex: 1;
+  padding: 24px;
+}
+
+/* ── 通用页面容器 ──────────────────────────────────────────────────── */
+.home,
+.auth-page,
+.install-page {
+  display: flex;
+  justify-content: center;
+}
+
+.home-card,
+.auth-card,
+.install-card {
+  width: 100%;
+  border-radius: var(--zhy-radius);
+  box-shadow: var(--zhy-shadow);
+}
+
+.home-card {
+  max-width: 880px;
+}
+
+.auth-card {
+  max-width: 420px;
+  margin-top: 8vh;
+}
+
+.install-card {
+  max-width: 960px;
+}
+
+.home-head,
+.auth-head,
+.install-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+}
+
+.install-head-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.home-title {
+  margin: 24px 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.home-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.home-empty,
+.home-hint,
+.auth-hint,
+.install-hint {
+  color: var(--zhy-text-muted);
+  font-size: 13px;
+}
+
+.home-hint {
+  margin-top: 12px;
+}
+
+.auth-alert,
+.install-alert {
+  margin-bottom: 16px;
+}
+
+.auth-submit {
+  width: 100%;
+  margin-top: 8px;
+}
+
+/* ── 安装向导 ──────────────────────────────────────────────────────── */
+.install-steps {
+  margin: 8px 0 24px;
+}
+
+.install-step h3 {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+
+.install-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0;
+  flex-wrap: wrap;
+}
+
+.install-row .el-input {
+  flex: 1;
+  min-width: 240px;
+}
+
+.install-desc {
+  margin-top: 16px;
+}
+
+.install-tag {
+  margin: 0 6px 6px 0;
+}
+
+.install-form {
+  max-width: 480px;
+  margin: 12px 0 16px;
+}
+
+.install-list {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  color: var(--zhy-text-muted);
+  font-size: 13px;
+}
+
+/* ── 学科树 / 课程三层（M2.1）──────────────────────────────────────── */
+.catalog-card {
+  border-radius: var(--zhy-radius);
+  box-shadow: var(--zhy-shadow);
+  margin-bottom: 16px;
+}
+
+.catalog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-weight: 600;
+}
+
+.catalog-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.catalog-row .el-input {
+  flex: 1;
+}
+
+.catalog-row-top {
+  margin-top: 16px;
+}
+
+.catalog-node {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding-right: 4px;
+}
+
+.catalog-node-disabled {
+  color: var(--zhy-text-muted);
+  text-decoration: line-through;
+}
+
+.catalog-node-actions {
+  display: flex;
+  align-items: center;
+  opacity: 0.55;
+}
+
+.catalog-node-actions:hover {
+  opacity: 1;
+}
+
+.catalog-node-actions .el-button + .el-button {
+  margin-left: 2px;
+}
+
+.catalog-reset {
+  margin-top: 8px;
+}
+
+.catalog-hint {
+  margin-top: 12px;
+  color: var(--zhy-text-muted);
+  font-size: 13px;
+}
+
+.catalog-alert {
+  margin-bottom: 12px;
+}
+
+.catalog-list {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+
+.catalog-desc {
+  margin-bottom: 8px;
+}
+
+.catalog-title {
+  margin: 20px 0 8px;
+  font-size: 15px;
+}
+
+.catalog-chapters {
+  margin-top: 8px;
+}
+
+.catalog-chapter-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  font-weight: 600;
+}
+
+.catalog-add-lesson {
+  margin-top: 8px;
+}
+
+.catalog-full {
+  width: 100%;
+}

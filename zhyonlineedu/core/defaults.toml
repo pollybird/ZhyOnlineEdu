@@ -1,0 +1,105 @@
+# M1.1 配置默认值（§4.3 三层配置的 L0 层）
+# 原则：默认值写在代码外；与 zhyonlineedu/core/constants.py 同名常量由单测比对，禁止漂移。
+# 键到环境变量的映射见 zhyonlineedu/core/config.py。
+
+env = "dev"
+
+[db]
+url = "sqlite:///./zhy_edu.db"
+flavor = ""
+og_version = ""
+
+[install]
+token = ""
+
+[jwt]
+private_key_path = "./run/keys/jwt_private.pem"
+public_key_path = "./run/keys/jwt_public.pem"
+
+[auth]
+at_ttl_sec = 1800
+
+[progress]
+ring_dir = "/run/zhy/progress"
+flush_batch = 200
+flush_interval_sec = 15
+lease_ttl_sec = 30
+bus = "local"
+recovery_max_gap = 10000
+completion_threshold = 90
+
+[redis]
+url = ""
+
+[quiz]
+pass_score = 60
+
+# 双模式（§9.3 / §9.6 · M2.10）：epoch 缓存窗口 + 切换窗口隔离 + 有效票据告警阈值
+[mode]
+cache_ttl_sec = 30
+quarantine_window_sec = 3600
+ticket_warn_threshold = 1000
+
+# 用户 / 班级 / 导入 / 过期（§10.5 · M2.7）
+[users]
+# 导入冲突策略：report_only 只记错误行不覆盖原值；overwrite 显式覆盖
+on_conflict_action = "report_only"
+import_max_rows = 5000
+expire_hour = 2
+expire_batch_size = 500
+
+# 会员订单 / 支付回调（§10.6 · M2.12）
+[pay]
+# 占位密钥仅供 dev：非 dev 环境沿用该值会被配置校验拒绝（回调签名 HMAC-SHA256）
+callback_secret = "dev-only-callback-secret"
+order_ttl_sec = 1800
+max_open_orders = 3
+
+[media]
+ttl_ts = 259200
+ttl_playlist = 900
+ttl_key = 120
+ticket_slack = 20
+ksession_strict_ip = false
+aes_key_hex = ""
+cdn_base = ""
+nonce_reuse_window_sec = 30
+superseded_grace_sec = 120
+
+[transcode]
+sandbox = "bwrap"
+cpu_max_percent = 200
+mem_max_mb = 2048
+pids_max = 16
+input_max_duration_sec = 14400
+input_max_dimension = 4096
+allowed_formats = ["mp4", "mov", "mkv", "flv", "webm", "mp3", "aac"]
+profiles = ["360", "720"]
+segment_sec = 4
+poster_sec = 3
+max_attempts = 2
+retry_backoff_sec = 60
+worker_poll_sec = 3
+queue_batch = 4
+ffprobe_timeout_sec = 15
+task_timeout_sec = 3600
+paused = false
+
+[ffmpeg]
+cve_pause_on_hit = true
+sbom_path = "./deploy/ffmpeg/zhy-ffmpeg-sbom.json"
+
+# 分片上传与 tmp 安全（§10.3.1）：tmp 目录 0700、属主非 root，
+# 合并后 10 分钟未消费由 tmp-reaper 清理。
+[upload]
+tmp_root = "./var/tmp/uploads"
+chunk_size = 8388608
+max_file_bytes = 8589934592
+max_chunks = 4096
+session_ttl_sec = 86400
+tmp_ttl_sec = 600
+require_ffprobe = false
+
+[storage]
+driver = "local"
+local_dir = "./var/storage"

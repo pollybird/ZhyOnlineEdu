@@ -1,0 +1,104 @@
+[project]
+name = "zhyonlineedu"
+version = "0.1.0"
+description = "钟毓在线教育系统（ZhyOnlineEdu）内核 —— 多库适配 / 双场景模式 / 插件化"
+requires-python = ">=3.11"
+# 生产以 uv.lock 精确锁定，禁用范围符（附录 F）
+dependencies = [
+    "Flask==3.1.*",
+    "flask-sqlalchemy==3.1.*",
+    "SQLAlchemy==2.0.*",
+    "alembic==1.16.*",
+    "Pydantic==2.*",
+    "PyJWT==2.*",
+    "cryptography==43.*",  # RS256 密钥生成与验签（PyJWT[crypto] 的底层）
+    "argon2-cffi==25.*",
+    "boto3==1.*",
+    "redis[hiredis]==5.*",
+    "psutil==7.*",
+    "openpyxl==3.*",
+    "ffmpeg-python==0.2.*",
+    "opentelemetry-api==1.*",
+    "gunicorn==23.*",
+]
+
+[project.optional-dependencies]
+# 方言驱动：离线 wheelhouse 必备（§24.2）；本机开发默认只用 SQLite
+pg       = ["psycopg[binary]==3.*"]
+mysql    = ["mysqlclient==2.*"]
+# openGauss 5/6 用 psycopg2-for-opengauss（目标小版本实测 wheel）；7.0 走 psycopg
+# Kingbase V9 用 ksycopg2 + libkci.so，随厂商介质进 wheelhouse，不在公网源
+
+[dependency-groups]
+dev = [
+    "pytest==8.*",
+    "pytest-flask==1.*",
+    "factory-boy==3.*",
+    "hypothesis==6.*",
+    "locust==2.*",
+    "ruff==0.14.*",
+    "black==25.*",
+    "mypy==1.*",
+    "pre-commit==4.*",
+    "pip-audit==2.*",
+    "pymysql>=1.2.3",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# 国内镜像加速（pypi.org 直连不稳定时使用；CI 可移除）
+[[tool.uv.index]]
+name = "tuna"
+url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+default = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["zhyonlineedu"]
+
+# ── 代码质量（M1.1 门禁）──
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+src = ["zhyonlineedu", "tests", "scripts"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B", "ASYNC", "S", "C4", "SIM"]
+ignore = [
+    "S101",  # assert 在测试中合法
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "B011"]
+"scripts/**" = ["S603", "S607"]
+"zhyonlineedu/core/codes.py" = ["S105"]  # 错误码名常量，非密钥
+"spike/**" = ["S101", "S108", "S603", "S607", "S608", "E501"]  # 本地验证脚本
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.mypy]
+python_version = "3.11"
+mypy_path = "zhyonlineedu"
+packages = ["zhyonlineedu"]
+strict = true
+# ORM 属性访问需要插件把 Mapped[T] 还原为 T（M1.6 起认证/RBAC 大量读取列）
+plugins = ["sqlalchemy.ext.mypy.plugin"]
+warn_return_any = true
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = ["ffmpeg.*", "flask_sqlalchemy.*", "locust.*", "openpyxl.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+markers = [
+    "dialect: 方言矩阵用例（§16.2）",
+    "hbt: 心跳/进度网关用例（HBT-001~006）",
+    "media: 票据与播放链路用例（MEDIA-001~008）",
+    "sandbox: 转码沙箱用例（SANDBOX-001~006）",
+]
