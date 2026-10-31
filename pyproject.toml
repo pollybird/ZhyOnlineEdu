@@ -1,6 +1,7 @@
 [project]
 name = "zhyonlineedu"
-version = "0.1.0"
+# 版本号与 zhyonlineedu/__init__.py 的 __version__ 同步（规则见 README「版本号规则」）
+version = "0.2.15-alpha"
 description = "钟毓在线教育系统（ZhyOnlineEdu）内核 —— 多库适配 / 双场景模式 / 插件化"
 requires-python = ">=3.11"
 # 生产以 uv.lock 精确锁定，禁用范围符（附录 F）

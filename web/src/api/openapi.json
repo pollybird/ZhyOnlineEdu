@@ -6402,7 +6402,7 @@
   "info": {
     "description": "统一信封 {code, message, data, request_id}；错误码见 x-zhy-error-codes",
     "title": "钟毓在线教育系统 API",
-    "version": "0.1.0",
+    "version": "0.2.15-alpha",
     "x-zhy-progress-anti-replay": true,
     "x-zhy-progress-version": "zhy-progress-v2"
   },

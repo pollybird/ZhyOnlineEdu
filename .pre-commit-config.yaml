@@ -26,6 +26,11 @@ repos:
         entry: uv run python scripts/check_progress_monotonic.py
         language: system
         pass_filenames: false
+      - id: check-version
+        name: 版本号规则与一致性
+        entry: uv run python scripts/check_version.py
+        language: system
+        pass_filenames: false
       - id: export-openapi-check
         name: OpenAPI 生成物校验（§15.4）
         entry: uv run python scripts/export_openapi.py --check

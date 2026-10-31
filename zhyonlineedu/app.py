@@ -11,11 +11,11 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
-from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
 from flask import Flask, Response, current_app, g, jsonify, request
 
+from zhyonlineedu import __version__
 from zhyonlineedu.api.auth import bp as auth_bp
 from zhyonlineedu.api.catalog import bp as catalog_bp
 from zhyonlineedu.api.commerce import bp as commerce_bp
@@ -86,10 +86,8 @@ class _AppState:
 
 
 def _version() -> str:
-    try:
-        return version("zhyonlineedu")
-    except PackageNotFoundError:  # pragma: no cover - 源码直跑
-        return "0.1.0"
+    """运行版本号：唯一来源 `zhyonlineedu.__version__`（见 README「版本号规则」）。"""
+    return __version__
 
 
 def register_business_blueprints(app: Flask) -> None:

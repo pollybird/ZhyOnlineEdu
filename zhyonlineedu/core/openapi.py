@@ -17,6 +17,7 @@ from typing import Any
 from flask import Flask
 from pydantic import BaseModel
 
+from zhyonlineedu import __version__
 from zhyonlineedu.core.codes import ERROR_SPECS, Code
 
 OPENAPI_VERSION = "3.1.0"
@@ -200,7 +201,9 @@ def documentation_app() -> Flask:
     return app
 
 
-def build_spec(app: Flask, *, version: str = "0.1.0") -> dict[str, Any]:
+def build_spec(app: Flask, *, version: str | None = None) -> dict[str, Any]:
+    """生成 OpenAPI 3.1 规格；`version` 缺省取 `zhyonlineedu.__version__`。"""
+    spec_version = version or __version__
     components: dict[str, Any] = {"schemas": {}, "securitySchemes": {}}
     paths: dict[str, Any] = {}
     tags_used: set[str] = set()
@@ -281,7 +284,7 @@ def build_spec(app: Flask, *, version: str = "0.1.0") -> dict[str, Any]:
         "openapi": OPENAPI_VERSION,
         "info": {
             "title": "钟毓在线教育系统 API",
-            "version": version,
+            "version": spec_version,
             "description": "统一信封 {code, message, data, request_id}；错误码见 x-zhy-error-codes",
             "x-zhy-progress-version": PROGRESS_VERSION,
             "x-zhy-progress-anti-replay": PROGRESS_ANTI_REPLAY,

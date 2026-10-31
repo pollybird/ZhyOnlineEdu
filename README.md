@@ -8,6 +8,7 @@ SQLite / MySQL / PostgreSQL / openGauss（5.x / 6.x / 7.0）/ KingbaseES V9 下�
 - 后端：Python 3.11 · Flask 3.1 · SQLAlchemy 2 · Alembic · PyJWT(RS256) · Argon2 · gunicorn
 - 前端：Vue 3 · TypeScript · Vite · Pinia · Element Plus · hls.js
 - 媒体：FFmpeg（bwrap / cgroup 沙箱）+ AES-128 HLS + 三层 TTL 票据
+- 当前版本：**0.2.15-alpha**（命名规则见 [版本号规则](#版本号规则)）
 - 许可证：Apache-2.0（见 [LICENSE](LICENSE)）
 
 ## 能力概览
@@ -146,6 +147,7 @@ cd web && npm run dev      # http://127.0.0.1:5173，/api 已代理到 127.0.0.1
 .venv/bin/python scripts/check_dialect_compat.py   # 方言裸 SQL 红线
 .venv/bin/python scripts/check_progress_monotonic.py  # 进度单调红线
 .venv/bin/python scripts/check_migration_caps.py   # 迁移能力矩阵
+.venv/bin/python scripts/check_version.py          # 版本号规则与一致性
 .venv/bin/python scripts/export_openapi.py --check
 
 # 前端
@@ -182,8 +184,33 @@ M2.16 实测（gunicorn 4×16 + 单写者 flush，120 用户 × 5 分钟）：
 部署编排骨架见 `docker-compose.yml`（T1 档：api / progress-flush 单实例 / transcode / worker / expire / db），
 FFmpeg 沙箱资产见 `deploy/ffmpeg/`（`bwrap-launcher.sh`、`seccomp.json`、SBOM）。
 
+## 版本号规则
+
+正式发布（`1.0.0`）之前，**大版本号恒为 `0`**，版本号与《开发规划与里程碑》的里程碑一一对应：
+
+```
+0.<里程碑主号>.<里程碑次号>-alpha
+```
+
+| 阶段 | 版本号 |
+|---|---|
+| 完成 M2.15 | `0.2.15-alpha`（当前） |
+| 完成 M3.6 | `0.3.6-alpha` |
+| 进入 Beta 阶段 | `0.4.0-beta` |
+| 正式发布 | `1.0.0` |
+
+- **唯一来源**：`zhyonlineedu/__init__.py` 的 `__version__`。`pyproject.toml`（PEP 440 归一为
+  `0.2.15a0`）、`web/package.json`、`web/package-lock.json`、`web/src/api/openapi.json` 必须同步，
+  禁止在代码里散落版本字符串。
+- **自动校验**：`scripts/check_version.py` 检查「命名规则 + 各处一致」，CI quality 作业与
+  `pre-commit` 均执行；OpenAPI 规格的 `info.version` 由 `scripts/export_openapi.py` 从
+  `__version__` 生成。
+- **运行时暴露**：`GET /healthz` 与 `GET /api/v1/openapi.json` 返回同一版本号；镜像与部署用
+  `ZHY_VERSION`（`docker-compose.yml` 默认 `dev`，发版时传 `0.2.15-alpha`）保持同一标签。
+
 ## 当前进度
 
 M0（技术验证）~ M2（安装、课程、媒体、播放、进度、题库、会员、双模式与学员/管理端）已完成并
-通过 HBT-001~006 与 MEDIA-001~008 用例；M2.16 压测窗口已收尾。M3 起进入后续里程碑。
+通过 HBT-001~006 与 MEDIA-001~008 用例；M2.16 压测窗口已收尾，当前版本 **0.2.15-alpha**。
+M3 起进入后续里程碑。
 实测记录、缺陷与修复过程见 [`spike/RESULTS.md`](spike/RESULTS.md)。
