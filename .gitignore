@@ -23,8 +23,8 @@ web/dist/
 *.key
 zhy-ffmpeg-sbom.local.json
 
-# ── 运行时 ──
-/run/zhy/
+# ── 运行时（密钥、ring、pid 等，绝不入库）──
+/run/
 # 本地实测运行目录（数据库/密钥/存储/上传等，勿提交）
 /var/
 *.log
@@ -38,6 +38,9 @@ zhy_edu.db-shm
 .idea/
 .vscode/
 .DS_Store
+
+# ── 计划文档（随仓库入库，勿添加忽略规则）──
+# plan/ 为交付文档，已由 git 跟踪
 
 # ── 测试 / spike 临时产物 ──
 spike/**/output/
