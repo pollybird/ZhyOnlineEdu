@@ -46,7 +46,7 @@ wsgi.py         # WSGI 入口（flask / gunicorn）
 manage.py       # 运维入口：db-migrate / tmp-reaper
 ```
 
-> `plan/` 为项目基线与排期文档，与代码同步维护；`var/` 为本地运行目录
+> `plan/` 为项目基线与任务分解文档，与代码同步维护；`var/` 为本地运行目录
 > （数据库、密钥、存储、上传、压测产物），不入库。
 
 ## 快速开始
