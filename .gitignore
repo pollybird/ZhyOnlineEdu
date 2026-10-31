@@ -39,9 +39,6 @@ zhy_edu.db-shm
 .vscode/
 .DS_Store
 
-# ── 计划文档（本地保留，不入库）──
-plan/
-
 # ── 测试 / spike 临时产物 ──
 spike/**/output/
 locust_reports/

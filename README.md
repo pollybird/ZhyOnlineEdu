@@ -41,12 +41,13 @@ tests/perf/     # 压测与对账脚本（不进 pytest 收集）
 web/            # Vue 3 前端（学员端 + 管理端 + 安装向导）
 deploy/ffmpeg/  # 沙箱启动器、seccomp、FFmpeg SBOM
 spike/          # 关键技术验证与实测记录（spike/RESULTS.md）
+plan/           # 技术开发计划书 + 开发规划与里程碑（随仓库入库）
 wsgi.py         # WSGI 入口（flask / gunicorn）
 manage.py       # 运维入口：db-migrate / tmp-reaper
 ```
 
-> `plan/`（开发计划与里程碑）按 `.gitignore` **仅本地保留、不入库**；`var/` 为本地运行目录
-> （数据库、密钥、存储、上传、压测产物），同样不入库。
+> `plan/` 为项目基线与排期文档，与代码同步维护；`var/` 为本地运行目录
+> （数据库、密钥、存储、上传、压测产物），不入库。
 
 ## 快速开始
 
