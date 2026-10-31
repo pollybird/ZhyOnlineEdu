@@ -589,6 +589,12 @@ class UploadService:
         info: MediaInfo,
         now: datetime,
     ) -> MediaAsset:
+        # 课时时长由视频探测结果派生，管理端不再人工填写（见 core/media/quarantine.py）。
+        # 魔数兜底探测拿不到时长（0s）时保留原值，避免把已有课时时长清空。
+        lesson = session.get(EduCourseLesson, lesson_id)
+        if lesson is not None and info.duration_sec > 0:
+            lesson.duration_sec = info.duration_sec
+            lesson.updated_at = now
         asset = session.execute(
             select(MediaAsset).where(MediaAsset.lesson_id == lesson_id)
         ).scalar_one_or_none()

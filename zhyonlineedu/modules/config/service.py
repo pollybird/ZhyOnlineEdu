@@ -259,7 +259,7 @@ class ModeService:
             checks.append(item)
 
         # 1（原）目标模式存在且受支持
-        add("mode_supported", "ok", f"目标模式 {target} 可用")
+        add("mode_supported", "ok", "目标模式可用")
         # 2（原）转码队列空闲：在途任务不会因子策略变化错档
         transcode_active = int(
             session.execute(
@@ -271,7 +271,7 @@ class ModeService:
         add(
             "transcode_idle",
             "warn" if transcode_active else "ok",
-            f"有 {transcode_active} 个转码任务在途，切换后仍按原档位完成",
+            f"有 {transcode_active} 个转码任务在途，切换后仍按原有清晰度完成",
             count=transcode_active,
         )
         # 3（原）在途作答：切换后交卷按新 epoch，不影响快照
@@ -285,7 +285,7 @@ class ModeService:
         add(
             "quiz_idle",
             "warn" if quiz_active else "ok",
-            f"有 {quiz_active} 份作答在途，快照已冻结、交卷不受切换影响",
+            f"有 {quiz_active} 份作答在途，切换不影响已开始的作答",
             count=quiz_active,
         )
         # 4（原）课程可见性：切换后 0 门可看即为业务风险，只告警不阻断
@@ -321,7 +321,7 @@ class ModeService:
         add(
             "active_tickets",
             "warn" if active_tickets > threshold else "ok",
-            f"尚有 {active_tickets} 个有效票据（存量不失效，新签发按 {target}）",
+            f"尚有 {active_tickets} 个有效播放凭证，切换后仍可继续播放",
             count=active_tickets,
         )
         # 6（新）进度流水 preview 污染：切换事务内隔离，不阻断
@@ -340,7 +340,7 @@ class ModeService:
         add(
             "preview_pollution",
             "warn" if preview_logs else "ok",
-            f"窗口内有 {preview_logs} 条 source=preview 进度流水，切换时置 quarantined=true",
+            f"最近有 {preview_logs} 条试看记录，切换后不计入学习统计",
             count=preview_logs,
         )
         # 7（新）能力位一致性：禁止"猜测能力位下跑模式策略"
@@ -348,11 +348,7 @@ class ModeService:
         add(
             "compat_flags",
             "ok" if not drift else "blocked",
-            (
-                "sys_compat_flags 与运行时能力位一致"
-                if not drift
-                else f"能力位不一致：{', '.join(drift)}；请先 manage.py db probe --persist"
-            ),
+            ("系统环境检查通过" if not drift else "系统环境检查未通过，请联系技术支持处理"),
             count=len(drift),
         )
         # 8（新）自注册账号处置（仅对外→对内）
@@ -371,12 +367,12 @@ class ModeService:
             add(
                 "self_registered",
                 "warn" if affected else "ok",
-                f"{affected} 个自注册账号将置 disabled 并写入 migration_batch_id（可批量恢复）",
+                f"{affected} 个自助注册账号将被停用（可按批次批量恢复）",
                 count=affected,
             )
         else:
             affected = 0
-            add("self_registered", "ok", "对外模式无需停用自注册账号", count=0)
+            add("self_registered", "ok", "对外模式无需停用自助注册账号", count=0)
 
         counts = ModeCounts(
             active_tickets=active_tickets,

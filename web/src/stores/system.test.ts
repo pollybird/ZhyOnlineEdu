@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type { ModeCheckOut, ModeCountsOut, ModePrecheckOut, ModeSwitchOut } from '../api/types'
 import {
   canSwitch,
+  checkLabel,
+  checkStatusLabel,
   describeSwitchReport,
   isEpochStale,
   modeHint,
@@ -68,13 +70,34 @@ describe('模式文案（M2.10~2.11）', () => {
   })
 
   it('提示语覆盖授权差异（班级授权仅内部模式生效）', () => {
-    expect(modeHint('internal')).toContain('class')
+    expect(modeHint('internal')).toContain('班级授权')
     expect(modeHint('external')).toContain('班级授权不启用')
   })
 
   it('另一个模式为当前模式的互补值', () => {
     expect(otherMode('internal')).toBe('external')
     expect(otherMode('external')).toBe('internal')
+  })
+})
+
+describe('预检检查项文案（不暴露内部标识）', () => {
+  it('8 个检查项均映射为业务中文名', () => {
+    expect(checkLabel('mode_supported')).toBe('目标模式可用性')
+    expect(checkLabel('transcode_idle')).toBe('转码任务')
+    expect(checkLabel('quiz_idle')).toBe('进行中的作答')
+    expect(checkLabel('course_visibility')).toBe('课程可见性')
+    expect(checkLabel('active_tickets')).toBe('有效播放凭证')
+    expect(checkLabel('preview_pollution')).toBe('试看记录')
+    expect(checkLabel('compat_flags')).toBe('系统环境一致性')
+    expect(checkLabel('self_registered')).toBe('自助注册账号')
+  })
+
+  it('未知检查项与未知状态不出英文标识', () => {
+    expect(checkLabel('future_check')).toBe('其他检查项')
+    expect(checkStatusLabel('ok')).toBe('通过')
+    expect(checkStatusLabel('warn')).toBe('提醒')
+    expect(checkStatusLabel('blocked')).toBe('阻断')
+    expect(checkStatusLabel('skipped')).toBe('待确认')
   })
 })
 
@@ -113,26 +136,26 @@ describe('epoch 乐观锁', () => {
 })
 
 describe('切换报告摘要', () => {
-  it('基础摘要含模式与 epoch', () => {
-    expect(describeSwitchReport(report())).toBe('内部模式 → 对外模式（epoch 4）')
+  it('基础摘要含前后模式', () => {
+    expect(describeSwitchReport(report())).toBe('已从内部模式切换到对外模式')
   })
 
-  it('隔离 preview 流水 / 停用自注册账号 / 存量票据逐项列出', () => {
+  it('隔离试看记录 / 停用自助注册账号 / 播放凭证继续有效逐项列出', () => {
     const summary = describeSwitchReport(
       report({
         counts: counts({ quarantined_logs: 7, affected_users: 2, active_tickets: 5 }),
         migration_batch_id: 'FLP20261030000000ab12cd34',
       }),
     )
-    expect(summary).toContain('隔离 preview 流水 7 条')
-    expect(summary).toContain('停用自注册账号 2 个（批次 FLP20261030000000ab12cd34）')
-    expect(summary).toContain('存量票据 5 个不失效')
+    expect(summary).toContain('隔离 7 条试看记录')
+    expect(summary).toContain('停用 2 个自助注册账号')
+    expect(summary).toContain('5 个已签发的播放凭证继续有效')
   })
 
   it('计数为 0 时省略对应片段', () => {
     const summary = describeSwitchReport(report({ previous_mode: null }))
     expect(summary).not.toContain('隔离')
     expect(summary).not.toContain('停用')
-    expect(summary).not.toContain('存量票据')
+    expect(summary).not.toContain('播放凭证')
   })
 })

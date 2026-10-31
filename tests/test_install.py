@@ -211,7 +211,7 @@ def test_full_wizard_sqlite(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
             assert row.install_step == InstallStep.DONE.value
             assert row.is_installed is True
             assert row.installed_at is not None
-            assert row.schema_rev == "0012_learning_profile"
+            assert row.schema_rev == "0013_lesson_duration"
             mode_row = session_db.get(SysModeConfig, ("external", "active"))
             assert mode_row is not None
             assert "returning" in mode_row.compat_flags

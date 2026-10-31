@@ -17,6 +17,8 @@ from flask import Blueprint, Response, current_app, make_response, request, send
 from zhyonlineedu.api.schemas import (
     CourseProgressDetailOut,
     CourseProgressListOut,
+    LearnCourseDetailOut,
+    LearnCourseListOut,
     MySummaryOut,
     ProgressGateOut,
     ProgressIn,
@@ -34,6 +36,7 @@ from zhyonlineedu.core.constants import ZHY_PROGRESS_METRIC_VERSION
 from zhyonlineedu.core.envelope import accepted_progress, ok
 from zhyonlineedu.core.errors import AppError
 from zhyonlineedu.core.openapi import documented
+from zhyonlineedu.modules.learn.catalog import student_catalog
 from zhyonlineedu.modules.learn.gateway import record
 from zhyonlineedu.modules.learn.playback import PlaybackService, TicketRequest
 from zhyonlineedu.modules.learn.profile import ProfileService, profile_service
@@ -299,3 +302,42 @@ def course_progress_detail(course_id: int) -> tuple[Response, int]:
 def my_summary() -> tuple[Response, int]:
     user = authenticate_request()
     return ok(_profile().summary(user.id))
+
+
+# ── 学员端课程目录（M2.14）──────────────────────────────────────────────
+
+
+@bp.get("/learn/courses")
+@login_required
+@documented(
+    "学员端课程列表",
+    description=(
+        "只返回 `published` 课程（学科未删除且启用），并按当前场景模式过滤 "
+        "（`mode=both` 或当前模式）；支持 subject_id / keyword 过滤与分页。"
+        "每张卡片带课时数、总时长、首个可播课时、本人课程进度与 `access_ok`"
+        "（仅为 UI 提示，最终授权以 `POST /media/tickets` 为准）。"
+    ),
+    response=LearnCourseListOut,
+    tags=("learn", "catalog"),
+    extensions={"x-zhy-progress-version": ZHY_PROGRESS_METRIC_VERSION},
+)
+def student_courses() -> tuple[Response, int]:
+    user = authenticate_request()
+    return ok(student_catalog().list_courses(user.id, request.args))
+
+
+@bp.get("/learn/courses/<int:course_id>")
+@login_required
+@documented(
+    "学员端课程详情",
+    description=(
+        "返回已上架课程的章 / 课时与每课时学习进度（含续播位置与完成态）、"
+        "资产就绪状态与课程级进度；未上架/模式不可见/已删除统一 404（不泄露存在性）。"
+    ),
+    response=LearnCourseDetailOut,
+    tags=("learn", "catalog"),
+    extensions={"x-zhy-progress-version": ZHY_PROGRESS_METRIC_VERSION},
+)
+def student_course_detail(course_id: int) -> tuple[Response, int]:
+    user = authenticate_request()
+    return ok(student_catalog().detail(user.id, course_id))

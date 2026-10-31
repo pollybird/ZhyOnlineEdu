@@ -326,11 +326,13 @@ def test_course_three_layers(client: Any, auth: dict[str, str], subject: dict[st
     lesson = _data(
         client.post(
             f"/api/v1/chapters/{chapter['id']}/lessons",
+            # 时长不再接受人工输入：即使回传 duration_sec 也会被忽略，等上传视频后派生。
             json={"title": "1.1 有理数", "duration_sec": 600},
             headers=auth,
         )
     )
     _assert_matches(LessonOut, lesson)
+    assert lesson["duration_sec"] == 0
     assert lesson["course_id"] == course["id"]
     assert lesson["asset_status"] is None
 

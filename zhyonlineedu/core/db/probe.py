@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import cast
@@ -40,6 +41,17 @@ logger = logging.getLogger(__name__)
 
 PROBE_TABLE = "zhy_probe_caps"
 
+
+def probe_table_name(pid: int | None = None) -> str:
+    """探测表按进程隔离（M2.16 多 worker 启动实测）。
+
+    gunicorn 多 worker 并行启动时若共用 `zhy_probe_caps`，A 进程探测完成后
+    drop 会打断 B 进程正在执行的 UPSERT 冒烟，导致能力位被误判为不可用。
+    每进程一张表，各自创建与清理，互不影响；安装期只读 `sys_compat_flags`。
+    """
+    return f"{PROBE_TABLE}_{os.getpid() if pid is None else pid}"
+
+
 SYS_COMPAT_FLAGS: Table = cast(Table, SysCompatFlags.__table__)
 
 # 厂商参数期望值见 compat.expected_settings（§5.5 / D35）。
@@ -47,7 +59,7 @@ SYS_COMPAT_FLAGS: Table = cast(Table, SysCompatFlags.__table__)
 
 def _probe_table() -> Table:
     return Table(
-        PROBE_TABLE,
+        probe_table_name(),
         MetaData(),
         Column("id", Integer, primary_key=True),
         Column("probe_key", String(64), nullable=False, unique=True),
@@ -100,7 +112,7 @@ def _probe_upsert_route(engine: Engine, flavor: Flavor, route: Route, *, require
             table.create(conn, checkfirst=True)
             compiled = compile_upsert(
                 flavor,
-                PROBE_TABLE,
+                probe_table_name(),
                 {"probe_key": "cap", "version": 1},
                 ["probe_key"],
                 route=route,

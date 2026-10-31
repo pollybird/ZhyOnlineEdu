@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { ApiError } from '../api/request'
 import type { DbTestOut, InstallFinishOut } from '../api/types'
 import { useInstallStore } from '../stores/install'
+import { resolveInstallStep } from '../utils/install'
 
 // 5 步向导（M1.5）：状态机以服务端 sys_install_state 为准，前端只做展示与最小校验
 const store = useInstallStore()
@@ -26,10 +27,13 @@ const STEP_TITLES: Record<string, string> = {
   done: '已安装',
 }
 
-const statusText = computed(() => STEP_TITLES[store.currentStep] ?? store.currentStep)
-const capsEntries = computed<readonly [string, boolean][]>(() =>
-  Object.entries(dbResult.value?.caps ?? {}),
-)
+const displayStep = computed(() => resolveInstallStep(store.currentStep, store.session !== ''))
+const displayIndex = computed(() => {
+  if (store.installed) return store.steps.length
+  const index = store.steps.indexOf(displayStep.value)
+  return index < 0 ? 0 : index
+})
+const statusText = computed(() => STEP_TITLES[displayStep.value] ?? displayStep.value)
 
 async function run<T>(task: () => Promise<T>): Promise<T | null> {
   busy.value = true
@@ -37,7 +41,11 @@ async function run<T>(task: () => Promise<T>): Promise<T | null> {
   try {
     return await task()
   } catch (error) {
-    errorMessage.value = error instanceof ApiError ? error.message : '请求失败，请查看后端日志'
+    // 会话过期（30 分钟）时自动回到令牌页，避免反复点击无反馈
+    if (error instanceof ApiError && error.code === 'INSTALL_TOKEN_INVALID') {
+      store.resetSession()
+    }
+    errorMessage.value = error instanceof ApiError ? error.message : '请求失败，请稍后重试'
     return null
   } finally {
     busy.value = false
@@ -51,7 +59,7 @@ async function refreshState(): Promise<void> {
 async function doToken(): Promise<void> {
   const candidate = token.value.trim()
   if (candidate === '') {
-    errorMessage.value = '请输入启动日志中的一次性安装令牌'
+    errorMessage.value = '请输入安装令牌'
     return
   }
   const result = await run(() => store.exchangeToken(candidate))
@@ -124,12 +132,12 @@ onMounted(async () => {
         </div>
       </template>
 
-      <el-steps :active="store.activeIndex" finish-status="success" align-center class="install-steps">
-        <el-step title="开始" description="一次性令牌" />
-        <el-step title="数据库" description="探测与建库" />
-        <el-step title="管理员" description="首个超管" />
-        <el-step title="场景模式" description="internal / external" />
-        <el-step title="完成" description="固化能力位" />
+      <el-steps :active="displayIndex" finish-status="success" align-center class="install-steps">
+        <el-step title="开始" description="安装令牌" />
+        <el-step title="数据库" description="连接与初始化" />
+        <el-step title="管理员" description="首个超级管理员" />
+        <el-step title="场景模式" description="内部 / 对外" />
+        <el-step title="完成" description="保存配置" />
       </el-steps>
 
       <el-alert
@@ -154,33 +162,35 @@ onMounted(async () => {
         class="install-alert"
       />
 
-      <section v-if="store.currentStep === 'start'" class="install-step">
+      <section v-if="displayStep === 'start'" class="install-step">
         <h3>校验安装令牌</h3>
         <p class="install-hint">
-          令牌来自启动日志（install_audit）或环境变量 ZHY_INSTALL_TOKEN，仅安装期有效；
-          安装完成后所有令牌与会话立即作废。
+          安装令牌在启动时生成，可从启动日志或部署配置中获取，仅在安装期间有效；
+          安装完成后自动作废。
         </p>
         <div class="install-row">
           <el-input
             v-model="token"
-            placeholder="粘贴一次性安装令牌"
+            placeholder="粘贴安装令牌"
             show-password
             @keyup.enter="doToken"
           />
-          <el-button type="primary" :loading="busy" @click="doToken">换取安装会话</el-button>
+          <el-button type="primary" :loading="busy" @click="doToken">验证并继续</el-button>
         </div>
       </section>
 
-      <section v-else-if="store.currentStep === 'db'" class="install-step">
-        <h3>数据库探测与建库</h3>
+      <section v-else-if="displayStep === 'db'" class="install-step">
+        <h3>数据库连接与初始化</h3>
         <p class="install-hint">
-          先探测（不固化能力位）→ 再执行 Alembic 建库/升级；blockers 非空时禁止下一步。
+          先测试连接，再初始化数据库；如有阻断项需先处理才能继续。
+          安装会话 30 分钟内有效，超时后可点「重新校验令牌」。
         </p>
         <div class="install-row">
           <el-button :loading="busy" @click="doTest">测试数据库连接</el-button>
           <el-button type="primary" :disabled="dbResult?.ok !== true" :loading="busy" @click="doSetup">
-            建库 / 升级
+            初始化数据库
           </el-button>
+          <el-button link type="info" @click="store.resetSession()">重新校验令牌</el-button>
         </div>
 
         <el-descriptions v-if="dbResult" :column="2" border class="install-desc">
@@ -189,19 +199,11 @@ onMounted(async () => {
               {{ dbResult.ok ? '通过' : '存在阻断项' }}
             </el-tag>
           </el-descriptions-item>
-          <el-descriptions-item label="数据库">
-            {{ dbResult.flavor || '未知' }} / {{ dbResult.dialect || '未知' }}
+          <el-descriptions-item label="数据库类型">
+            {{ dbResult.flavor || '未知' }}
           </el-descriptions-item>
-          <el-descriptions-item label="能力位" :span="2">
-            <el-tag
-              v-for="[key, value] in capsEntries"
-              :key="key"
-              size="small"
-              :type="value ? 'success' : 'info'"
-              class="install-tag"
-            >
-              {{ key }}
-            </el-tag>
+          <el-descriptions-item label="兼容模式">
+            {{ dbResult.dialect || '未知' }}
           </el-descriptions-item>
           <el-descriptions-item label="提示" :span="2">
             <span v-if="(dbResult.warnings ?? []).length === 0">—</span>
@@ -218,10 +220,10 @@ onMounted(async () => {
         </el-descriptions>
       </section>
 
-      <section v-else-if="store.currentStep === 'admin'" class="install-step">
+      <section v-else-if="displayStep === 'admin'" class="install-step">
         <h3>创建首个超级管理员</h3>
         <p class="install-hint">
-          口令使用 Argon2id 存储；finish 时会落到账号表并授予 super_admin。
+          该账号将在安装完成后自动获得超级管理员权限，请妥善保管口令。
         </p>
         <el-form label-width="96px" class="install-form" @submit.prevent>
           <el-form-item label="用户名">
@@ -237,30 +239,29 @@ onMounted(async () => {
         <el-button type="primary" :loading="busy" @click="doAdmin">创建管理员</el-button>
       </section>
 
-      <section v-else-if="store.currentStep === 'mode'" class="install-step">
+      <section v-else-if="displayStep === 'mode'" class="install-step">
         <h3>选择场景模式</h3>
         <p class="install-hint">
-          internal：校内闭环（默认关闭对外支付/注册）；external：对外运营。
-          模式写入 sys_mode_config 并锁定能力位快照。
+          内部模式：面向校内教学（默认关闭对外支付与自助注册）；对外模式：面向公众运营。
+          选择后将保存为系统运行模式，安装完成后仍可由管理员切换。
         </p>
         <el-radio-group v-model="selectedMode" class="install-row">
-          <el-radio value="internal">internal（校内闭环）</el-radio>
-          <el-radio value="external">external（对外运营）</el-radio>
+          <el-radio value="internal">内部模式（校内闭环）</el-radio>
+          <el-radio value="external">对外模式（对外运营）</el-radio>
         </el-radio-group>
         <el-button type="primary" :loading="busy" @click="doMode">保存场景模式</el-button>
       </section>
 
-      <section v-else-if="store.currentStep === 'finish'" class="install-step">
+      <section v-else-if="displayStep === 'finish'" class="install-step">
         <h3>完成安装</h3>
         <p class="install-hint">
-          将固化 sys_compat_flags、生成 RS256 密钥、把超管写入账号表；完成后需重启后端进程，
-          业务路由才会在 READY 状态下装配。
+          将保存环境配置、生成媒体加密密钥并创建管理员账号；完成后需重启服务才能登录使用。
         </p>
         <el-button type="primary" :loading="busy" @click="doFinish">完成安装</el-button>
       </section>
 
       <section v-else class="install-step">
-        <el-result icon="success" title="安装完成" sub-title="重启后端进程后即可登录使用">
+        <el-result icon="success" title="安装完成" sub-title="重启服务后即可登录使用">
           <template #extra>
             <el-button type="primary" @click="goLogin">前往登录</el-button>
           </template>
@@ -270,7 +271,7 @@ onMounted(async () => {
           type="warning"
           :closable="false"
           show-icon
-          title="需要重启后端：安装期未注册业务路由（Flask 首请求后禁止注册 Blueprint）"
+          title="需要重启服务：安装完成后必须重启后端服务才能登录使用。"
         />
         <el-descriptions v-if="finishResult" :column="2" border>
           <el-descriptions-item label="管理员">{{ finishResult.admin || '—' }}</el-descriptions-item>

@@ -165,7 +165,7 @@ M1.3 新增并已回写契约的 2 个缺陷：
 | openGauss 5/6/7 实测 | BLOCKED | 客户/厂商提供镜像或环境 | M5 国产化承诺前（M1.2/M1.3 已 COMPILE_ONLY） |
 | Kingbase V9 实测 | BLOCKED | 厂商介质 + libkci | M5.2 前 |
 | iOS/Android 原生 HLS 取 key 真机 | BLOCKED | 借调设备 | 已顺延至 M2.14 学员端联调 |
-| HBT-006 100 QPS 压测 | 未做（POC 级） | 需完整网关 + locust；网关已在 M2.5 落地 | 压测窗口 M2.16 |
+| HBT-006 100 QPS 压测 | **PASS（M2.16 实测）** | `tests/perf/`：gunicorn 4×16 gthread，120 用户 5 分钟 117.5 QPS / 0 失败 / `gw_seq` 无缺口 | 已完成 2026-10-31 |
 | 多码率 ladder 与 CDN 回源比 | 未做 | 属 M2.4/M4.2 范围 | — |
 | 题库判分自动化（答案不下发 / 重试不双成绩） | **已自动化** | M2.6 `tests/test_quiz.py` 23 条覆盖 | — |
 
@@ -318,3 +318,181 @@ M2.13 生产化产物（学习档案 / 课程投影 / 口径版本，§10.7 / §
 `(user, course)` 去重再聚合课程投影，同一批流水只算一次；② 详情只下发已学课时，避免向学员泄露未学结构；
 ③ 迁移回填必须判 `ctx.as_sql`（离线脚本无可执行连接，与 M2.7 `user_no` 回填同口径）；
 ④ 今日时长直查 `learn_progress_log` 并显式 `source='play' AND quarantined=false`，不依赖投影新鲜度。
+
+M2.14~2.15 生产化产物（管理端 + 学员端 + 移动五态，§14 / §23）：
+`zhyonlineedu/modules/learn/catalog.py`（`StudentCatalog`：仅 `published` + 当前模式可见，叠加课程投影与
+`access_ok`）、`zhyonlineedu/api/{learn,commerce}.py`（`GET /learn/courses`、`GET /learn/courses/{id}`、
+`GET /member/offers`）、`web/src/views/`（学员端 6 页 + 管理端 5 页）、
+`web/src/media/{TicketedHls,ProgressReporter}.ts`（换票/原生 query 票据/30s 心跳 + `pagehide` keepalive）、
+`web/src/components/`（`StateView` 五态 / `PreviewBadge` / `SourceTag` / `ShowcaseTips` / `AdminMobileGate`）、
+`tests/test_learn_catalog.py`（3 条）、前端 48 条（7 files）。
+验收口径闭合：① `/admin` <640px 只提示并可复制桌面链接，不重定向；学员端五态齐全、首屏 ≤2 请求；
+② 课程目录只含 `published` 且当前模式可见课程，进度与 `access_ok` 与档案同源；draft 仅 `course:edit` 预览；
+③ 后端 372 passed + 34 skipped、前端 48 passed、`npm run build` 通过（仅 chunk 体积警告）。
+
+**本地实测记录（2026-10-30，M2.14 收尾）**：临时 SQLite + 真实安装向导（token → db/test → db/setup →
+admin → mode → finish）后以 `InstallProbe` 重启进入 READY；建学科/课程/章/课时 → 分片上传
+（sha256/md5/断点）→ 检疫合并 → 转码 worker → 上架 → 学员取票 → master/variant/key/segment 全链路
+→ 进度上报 + `progress_flush --once` → `/my/summary`、`/my/progress`、`/my/progress/1`、
+`/my/progress/gate` → 题库 3 题作答（单选/多选/判断）与同 key 重放（200 `created=false`，成绩不重算）
+→ 会员档位/订单创建/列表/取消 → 课程切 `member` + 课时 `is_free=false` 后取票 403 `ACCESS_LEVEL_REQUIRED`
+→ `POST /member/grant` 后取票成功且课程卡 `access_ok=true`。结果：`ALL E2E CHECKS PASSED: 37 steps`
+（逐项结果存 `/tmp/zhy_m214/e2e-results.json`，样例素材为 ffmpeg 合成 6s/640x360 视频）。本机 bwrap
+创建 namespace 报 `Resource temporarily unavailable`，故按 `transcode.sandbox=disabled`（仅 dev 允许）执行。
+
+**M2.4 缺陷回写（实测暴露并修复）**：HLS 分片是 AES-128-CBC 密文，`ffprobe` 直接探测恒为 `unknown`，
+产物二次校验据此判 `ENC-1003 codec_not_allowed`，转码永远失败。修复：
+`core/media/hls.py::parse_variant` 解析 `#EXT-X-KEY` 的 `IV`（`Variant.iv`，半截声明
+`key_declaration_invalid`）；`core/media/keys.py::decrypt_aes128_cbc`；
+`modules/media/transcode_service.py` 用任务注入 key + IV 解密首片到 `codec-probe/` 供探测并在
+`finally` 删除（发布目录实测仅 `360/720/poster/master.m3u8`）。回归：`tests/test_transcode.py`
+新增 IV 解析 / 半截 IV / 解密往返 / 解密探测 / 加密产物端到端转码 5 条。
+
+**M2.4 缺陷回写二（1080p 转码 `ENC-1002`，实测暴露并修复）**：上传 92MB / 1920×1080 / 144s 视频，
+两次转码均在首帧初始化失败（`ENC-1002`，stderr 尾部 `x264 [error]: malloc of size 11453504 failed`，
+退出码 -11/SIGSEGV）。复现与归因：`SandboxRunner(mem_max_mb=2048, backend=disabled)` 跑 1080 档
+0.5s 即崩；同一命令在 shell 里 `ulimit -v 2097152` 也崩，加 `-threads 4/6/8` 均成功，
+缺省线程（宿主 8 核 → x264 12 线程）失败；把地址空间抬到 2560MiB 亦成功。根因：
+`_limits()` 恒设 `RLIMIT_AS = mem_max_mb × 1MiB`，而 ffmpeg 按**宿主核数**派生 x264 线程，
+1080p 帧缓冲/前瞻队列随线程数膨胀，最终撞上 2GiB 地址空间上限。修复：
+`core/media/runtime.py` 新增 `MAX_ENCODE_THREADS = 8` 与 `encode_threads(cpu_max_percent)`
+（每 50% CPU 配额 1 线程、封顶 8，默认 200% → 4），`build_hls_command(spec, threads=...)` 在
+`-profile:v main` 后注入 `-threads`（越界值钳制），`SandboxRunner._inner_command` 按 CPU 配额传入；
+poster 命令维持原样（实测 2048MiB 内正常）。实测：4 线程 1080p 全片 50s 完成（2048MiB 内）；
+服务层重跑三档 100.5s 成功，`asset=encoded`、`playlist_version=3`、master 三档齐全、
+variant `#EXT-X-KEY` 带显式 `IV`。回归：`tests/test_transcode.py` 新增线程推导 / 命令注入与钳制 /
+runner 派生 3 条（整文件 29 条）。
+
+**播放缺陷回写（学员端「网络连接失败」，实测暴露并修复）**：访问
+`/learn/lessons/1?course=1` 后页面进入 error 态并显示「网络连接失败」。复现：后端 5000 / Vite 5173
+均在监听、代理正常，课程详情与 `POST /media/tickets` 均 200；按 hls.js 的请求顺序直连：
+`master(200) → variant[360](200) → key(200) → segment(200)`，但**再次请求 `variant[720]`（ABR 切档，
+直接复用 master 里的 URI）返回 `401 {"code":40201,"data":{"reason":"playlist_stale"}}`**。
+根因：`PlaybackService.playlist()` 旧实现每次请求都 `_rotate()` 轮换 nonce，而 master 一次下发
+三档 URI、播放器切档不会重新拉 master，导致 master 中除第一档外的 URI 立即失效；hls.js 将其归为
+hls.js `networkError` → `TicketedHls.refresh()`（最多 2 次）→ 耗尽后 `fail()` → `describeError`
+映射为「网络连接失败」。二次缺陷：前端 `refreshes` 计数永不复位，长视频每 100s 定时续签计一次，
+第三次续签即被误判为不可恢复。
+修复：① `playback.playlist()` 在 playlist 有效期内固定 `nonce = row.nonce`，各档位/重复拉取签名一致；
+`#EXT-X-KEY` 的 `exp` 固定为 `issued_at + ttl_key`（不再用请求时刻），同 ksession 下 key URI 字节一致，
+hls.js 可按 URI 缓存密钥；删除 `_rotate()`；更新模块 docstring。② `web/src/media/TicketedHls.ts`
+新增 `refresh({scheduled})`：定时续签不计入 `MAX_REFRESH`；错误换票记录位置，`timeupdate` 中
+`readyState>=3 && currentTime > refreshAtPosition + 5` 时把预算复位。
+回归与实测：`tests/test_modes.py` 新增 `test_master_variant_urls_survive_abr_switch`（master 三档 URI
++ master 重复拉取 + key 复用均 200）；`tests/test_progress.py::test_playlist_url_reusable_and_old_ticket_expires`
+改写为「同票 URL 可复用 + 新票 supersede 后宽限期外 401 `session_superseded`」；前端
+`ticketed-hls.test.ts` 新增 3 条（定时续签不耗预算 / 错误换票耗尽 / 恢复 5s 复位）。真实环境重启后端后
+直连验证：新票 master 200 → 360/720/1080 变体 200 → master 重复 200 → key 200 且窗口内重复 200（16 字节）
+→ 三档 `seg_000.ts` 200（573KB / 1.39MB / 2.75MB）。
+
+**体验缺陷回写（清晰度切换缺失 + 前端技术文案外泄，人工验收暴露并修复）**：播放页只有播放控制，
+无法选择清晰度；同时多个页面把《技术开发计划书》口径直接呈现在普通用户面前（登录页
+「AT 仅存内存，刷新页面由 HttpOnly Cookie 中的 RT 静默恢复（M1.6）」、模式切换页
+「切换只改 `sys_mode_state` 单行（epoch+1），不改表结构；请求内只读一次 epoch，在途请求不半 half」、
+管理端首页「权限来自 `sys_role_permission`；`progress:direct` 不授予内置角色（计划书 §7.3）」等）。
+修复：①**清晰度**——`web/src/media/TicketedHls.ts` 新增 `preferredProfile`（`null` = 自动）、
+`supportsProfileSwitch`（原生 HLS 路径不支持，返回 false）、`setProfile()` 与 `applyPreferred()`
+（按 `level.height === Number(profile)` 映射到 hls.js 档位索引，找不到回落自动），在
+`MANIFEST_PARSED` 回调内 `resume → applyPreferred → play` 顺序套用，并在 `refresh()` 换票重载后
+再次套用同一选择（用户选择不丢）；`PlayerView.vue` 状态栏新增「清晰度」`el-radio-group`
+（自动 / `profiles` 各档位 `N P`），`switchSupported && profiles.length > 0` 时才渲染，
+`destroy` 时复位。②**文案**——删除仅用于演示的「框架页」（`HomeView.vue` 及其路由与导航）；
+新增 `web/src/utils/labels.ts` 统一中文化（角色 / 模式 / 课程模式 / 资产状态 / 用户状态 / 订单 /
+订阅 / 题型 / 批次 / 导入冲突与行动作）；`ModeSwitchView` 去掉 epoch tag、迁移批次、票据 TTL 与
+`告警` 术语，检查项走 `checkLabel/checkStatusLabel`（ok → 通过、warn → 提醒、blocked → 阻断）；
+`Login` / `AppShell` / `AdminHome` / `MyProgress` / `Catalog` / `AdminMedia` / `AdminUsers` /
+`AdminQuiz` / `AdminMember` / `Member` / `Quiz` / `Install` / `LearnHome` / `AdminMobileGate` /
+`CourseView` / `PlayerView` 同步改为业务语言（`媒体资产`→`媒体文件`、`查单补偿`→`订单查询`、
+`挂载资产`→`上传视频`、`播放票据`→`播放凭证`）；后端 `modules/config/service.py` 预检 8 条消息
+同步中文化（去掉 `mode_supported` / `compat_flags` 等内部标识与 `blockers` 术语）。
+验证：`npm test` 9 files / 63 tests 通过（新增 `labels.test.ts` 5 条、`ticketed-hls.test.ts` 切档 2 条、`system.test.ts` 检查项文案 2 条、`format.test.ts` 断言同步
+「播放凭证」）；`npm run build` 通过；`.venv/bin/python -m pytest` 全量 376 passed / 34 skipped
+（127.9s）；`ruff` / `black` / `mypy` 对改动后端文件通过。
+
+**数据一致性回写（课时时长改为视频派生，人工输入下线）**：此前「新增课时」要求管理端手填时长
+（默认 9 分钟，前端乘 60 提交 `duration_sec`），与真实视频无关，直接污染学习完成率（进度 gateway
+用 `lesson.duration_sec` 作为位置上限、`progress-flush` 用它算完成率）。修复：①**上传即派生**——
+`modules/media/upload_service.py::_touch_asset` 在合并与探测成功后把 `info.duration_sec` 写入
+`edu_course_lesson.duration_sec`（魔数兜底探测为 0 时保留原值，避免清空历史值）；②**转码发布校正**——
+`modules/media/transcode_service.py` 发布成功时用 `media_asset.duration_sec` 覆盖课时时长，
+覆盖历史人工值；③**入口下线**——`modules/catalog/service.py` 的 `create_lesson` / `update_lesson`
+不再读取 `duration_sec`（创建固定 0，编辑忽略），`api/schemas.py` 的 `LessonCreateIn` /
+`LessonUpdateIn` 同步移除该字段并重新生成 `web/src/api/openapi.json` 与 `types.ts`；
+④**前端**——`CatalogView` 删除时长输入框，课时列表改为「时长」列（`formatDuration`，无视频显示 `—`），
+`stores/catalog.ts::addLesson` 去掉时长参数，成功提示改为「已上传视频后自动识别时长」；
+⑤**存量回填**——新增迁移 `0013_lesson_duration`（数据迁移，无表结构变更），按
+`media_asset.duration_sec > 0` 回写未删除课时，并同步 `schema_rev`。
+回归与实测：`tests/test_catalog.py` 断言「回传 `duration_sec: 600` 仍为 0」；
+`tests/test_media_upload.py` 断言上传完成后课时时长 = 42（魔数兜底时保留 0）；
+`tests/test_transcode.py` 新增 `test_publish_rewrites_legacy_manual_lesson_duration`
+（历史人工值 999 → 发布后回到 8）；迁移测试 `HEAD_REV` 更新为 `0013_lesson_duration`
+（`check_migration_caps` 13 个 revision OK）。全量 `.venv/bin/python -m pytest`：**377 passed / 34 skipped**；
+前端 `npm test` **63 passed**、`npm run build` 通过；本地实测 `var/zhy.db` 升级到 0013 后，
+课时 2 的时长由人工 480 变为视频探测的 144，`GET /courses/1` 返回 `duration_sec=144`。
+
+## 十一、M2.16 压测窗口与 M2 收尾验收（2026-10-31）
+
+**环境**：Linux x86_64 · Python 3.11 · SQLite 3.46（WAL + `synchronous=NORMAL` + `busy_timeout=5000`，
+`connect_args timeout=15`）· gunicorn 23.0.0 `-w 4 -k gthread --threads 16`（入口 `var/wsgi.py`，
+`var/` 已 gitignore）· `python -m zhyonlineedu.workers.progress_flush` 单写者独立进程。
+
+### 11.1 用例（F2 / F3+F4 关闭条件）
+
+| 组 | 命令 | 结果 |
+|---|---|---|
+| HBT-001~006 | `.venv/bin/python -m pytest -m hbt -q` | **20 passed**（双网关收敛、kill -9 后 DB 补齐、lease 单写者、重放幂等、乱序取大、100 QPS 对账） |
+| MEDIA-001~008 | `.venv/bin/python -m pytest -m media -q` | **19 passed**（playlist TTL 换票、key nonce 重放、ksession 换课 MISMATCH、preview 不计入、fallback、分片长 TTL、原生 HLS 取 key、会员降级收缩） |
+
+### 11.2 HBT-006 实测（§16.4 用例⑥）
+
+```bash
+ZHY_PERF_USER_PREFIX=perf7 .venv/bin/python tests/perf/seed_progress.py --users 120
+ZHY_PERF_USER_PREFIX=perf7 .venv/bin/locust -f tests/perf/locustfile_progress.py \
+    --headless -u 120 -r 20 -t 5m --csv var/perf/progress_perf7 --stop-timeout 20
+ZHY_PERF_USER_PREFIX=perf7 .venv/bin/python tests/perf/check_hbt006.py \
+    --expected var/perf/progress_expected.json
+```
+
+- `POST /learn/progress`：**35122 请求 / 0 失败 / 117.1 RPS**，P50 23ms · P95 100ms · P99 560ms
+- `POST /auth/login`：120 请求 / 0 失败（`-r 20` 分摊；Argon2 并发下 P50 3.1s）
+- 对账：`用户 120 / 上报 35122 条 / 未落库 0 条 / gw_seq 跨度 35122 / 投影对账 OK` → **HBT-006 PASS**
+  （`gw_seq` 无缺口、每用户 `seq_no` 连续、`learn_progress.watch_seconds` 与客户端累计误差 0）
+- 压测期间日志仍出现 `progress 写入等锁超时，重试 1/3`（3 次）与 `登录写会话等锁，重试 1/3`（2 次），
+  全部由退避重试吸收，**对外失败 0**。
+
+### 11.3 播放回源（`locustfile_play.py`）
+
+`-u 60 -r 20 -t 1m`：3591 请求 / 0 失败 / 60 RPS；分片 2988 次 P50 6ms · P95 12ms · P99 60ms，
+取票 60 次 P50 610ms。分片是 `public + 长 TTL`，生产中由 CDN 承载，**回源比需在部署环境按 CDN 日志统计**
+（本地不伪造该指标）。
+
+### 11.4 压测暴露并修复的缺陷（4 个）+ 客户端计量修正
+
+1. **flush 单事务持锁 > 5s → 上报 500**（100/150 用户各 18 次 `database is locked`）。根因：
+   `ProgressFlush.flush_once` 用一个事务处理 1000 行并逐用户重算投影，SQLite 写锁持有超 5s，
+   网关 `UPDATE learn_progress_gate` 等锁 5.36s 后超时。修复：按 `(user, lesson, course)` 分组、
+   **每组一个短事务**（同一 flush 内同用户多行只重算一次投影）；「绝对值重算 + GREATEST 不回退 +
+   replay 安全」的不变式不变（`core/progress/flush.py`）。
+2. **默认 `flush_batch=200 / flush_interval_sec=15` 吞吐不足**：200 行/15s ≈ 13 行/s，
+   100 QPS 上报 5 分钟积压 14417 行未落库。改 `1000 / 5s`（200 行/s，2 倍余量），
+   `core/constants.py` 冻结常量与 `defaults.toml` 同步。
+3. **gunicorn 多 worker 启动期能力探测自伤**（seed 从第 30 个账号起 `409 INSTALL_REQUIRED`）：
+   4 个 worker 共用探测表 `zhy_probe_caps`，A 探测完 drop 表会打断 B 正在执行的 UPSERT 冒烟，
+   能力位被误判「不可用」。改为按进程隔离 `probe_table_name()`（`zhy_probe_caps_<pid>`），各自建表/清理
+   （`core/db/probe.py`，`tests/test_probe.py` 断言同步）。
+4. **登录 `database is locked` → 500**（120 次登录 3 次失败）：`login()` 把
+   「SELECT user → Argon2（≈0.5s）→ INSERT account_session」放在同一读事务里，期间任何写者提交
+   都会让事务升级为写时直接 `SQLITE_BUSY_SNAPSHOT`（`busy_timeout` 对升级**无效**）。修复：
+   「短读会话取 `id/password_hash` → 事务外 Argon2 → 短写会话复查状态后签发」，写会话撞锁退避重试 3 次；
+   `change_password` 同样两段式；锁判定抽到 `core/db/engine.py::is_lock_error`，网关复用同一实现。
+5. **压测客户端计量失真**（对账「每用户 +1」的假缺口）：locust 退出时仍有在途请求（服务端已提交、
+   快照未累计）。修复：`_INFLIGHT` 计数 + `quitting` 事件等待在途请求收干 + `--stop-timeout 20`；
+   并把 `constant(1)` 改 `constant_pacing(1)`（100 用户才真到 100 QPS）、瞬时登录改 `-r 20` 分摊 +
+   失败退避重试 3 次（只停该虚拟用户，不再 `runner.quit()` 终止整场）。
+
+### 11.5 结论
+
+§13 的「gunicorn 4×16 gthread ≈ 250 QPS」在 SQLite WAL 下未实测到：本机瓶颈先落在 flush 写锁与
+Argon2 登录，稳定值 ≈117 QPS（>100 QPS 目标）；250 QPS 属 PostgreSQL/MySQL + 独立 worker 口径，
+M3 联调时复测。M2 收尾（F1~F4）用例全绿（HBT 20 / MEDIA 19），红线三件套
+（方言兼容·进度单调·迁移能力 13 revision）与 `export_openapi.py --check` 一并通过。

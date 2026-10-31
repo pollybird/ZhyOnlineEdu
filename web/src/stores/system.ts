@@ -13,7 +13,7 @@ export type ModeName = 'internal' | 'external'
 /**
  * 切换向导纯逻辑（供 vitest 直接断言，不触碰网络）。
  *
- * 口径：`blocked` 项即拒绝切换；`warn` 项只提示（存量票据不失效、preview 流水会被隔离）。
+ * 口径：`blocked` 项即拒绝切换；`warn` 项只提示（已签发的播放凭证继续有效、试看记录不计入学习统计）。
  */
 export function modeLabel(mode: string): string {
   return mode === 'external' ? '对外模式' : '内部模式'
@@ -21,8 +21,29 @@ export function modeLabel(mode: string): string {
 
 export function modeHint(mode: string): string {
   return mode === 'external'
-    ? '面向公众售卖：仅 public / member 授权生效，班级授权不启用'
-    : '面向校内教学：public / member / class 三种授权全部生效'
+    ? '面向公众售卖：仅公开课与会员课开放，班级授权不启用'
+    : '面向校内教学：公开课、会员课与班级授权全部生效'
+}
+
+/** 预检检查项 → 面向管理员的业务名称。 */
+export function checkLabel(code: string): string {
+  return (
+    {
+      mode_supported: '目标模式可用性',
+      transcode_idle: '转码任务',
+      quiz_idle: '进行中的作答',
+      course_visibility: '课程可见性',
+      active_tickets: '有效播放凭证',
+      preview_pollution: '试看记录',
+      compat_flags: '系统环境一致性',
+      self_registered: '自助注册账号',
+    }[code] ?? '其他检查项'
+  )
+}
+
+/** 预检结果 → 面向管理员的判定文案。 */
+export function checkStatusLabel(status: string): string {
+  return { ok: '通过', warn: '提醒', blocked: '阻断' }[status] ?? '待确认'
 }
 
 export function otherMode(mode: string): ModeName {
@@ -62,17 +83,16 @@ export function isEpochStale(expected: number, current: number): boolean {
 /** 切换报告摘要：切换向导确认页与审计回执共用。 */
 export function describeSwitchReport(result: ModeSwitchOut): string {
   const parts = [
-    `${modeLabel(result.previous_mode ?? 'internal')} → ${modeLabel(result.mode)}（epoch ${result.epoch}）`,
+    `已从${modeLabel(result.previous_mode ?? 'internal')}切换到${modeLabel(result.mode)}`,
   ]
   if (result.counts.quarantined_logs > 0) {
-    parts.push(`隔离 preview 流水 ${result.counts.quarantined_logs} 条`)
+    parts.push(`隔离 ${result.counts.quarantined_logs} 条试看记录（不计入学习统计）`)
   }
   if (result.counts.affected_users > 0) {
-    const batch = result.migration_batch_id ?? '-'
-    parts.push(`停用自注册账号 ${result.counts.affected_users} 个（批次 ${batch}）`)
+    parts.push(`停用 ${result.counts.affected_users} 个自助注册账号（可批量恢复）`)
   }
   if (result.counts.active_tickets > 0) {
-    parts.push(`存量票据 ${result.counts.active_tickets} 个不失效`)
+    parts.push(`${result.counts.active_tickets} 个已签发的播放凭证继续有效`)
   }
   return parts.join('；')
 }

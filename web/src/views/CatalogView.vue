@@ -4,6 +4,12 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { ApiError } from '../api/request'
 import type { CourseOut, SubjectOut } from '../api/types'
 import { useCatalogStore, type SubjectNode } from '../stores/catalog'
+import { accessLabel, formatDuration } from '../utils/format'
+import {
+  courseModeLabel,
+  courseStatusLabel,
+  assetStatusLabel,
+} from '../utils/labels'
 
 /**
  * 学科树 + 课程三层管理页（M2.1）。
@@ -21,7 +27,7 @@ const publishError = ref<{ reason: string; not_ready: { lesson_id: number; title
 const newCourse = reactive({ title: '', subjectId: null as number | null })
 const newCourseVisible = ref(false)
 const chapterTitle = ref('')
-const lessonForm = reactive({ chapterId: 0, title: '', duration: 9 })
+const lessonForm = reactive({ chapterId: 0, title: '' })
 
 const detail = computed(() => store.detail)
 const subjectOptions = computed(() =>
@@ -37,7 +43,7 @@ function notifyError(error: unknown): void {
     ElMessage.error(error.message)
     return
   }
-  ElMessage.error('请求失败，请查看后端日志')
+  ElMessage.error('请求失败，请稍后重试')
 }
 
 async function guard(task: () => Promise<void>): Promise<void> {
@@ -179,15 +185,14 @@ async function addChapter(): Promise<void> {
 async function startLesson(chapterId: number): Promise<void> {
   lessonForm.chapterId = chapterId
   lessonForm.title = ''
-  lessonForm.duration = 9
 }
 
 async function addLesson(): Promise<void> {
   if (lessonForm.title.trim() === '') return
   await guard(async () => {
-    await store.addLesson(lessonForm.chapterId, lessonForm.title.trim(), lessonForm.duration * 60)
+    await store.addLesson(lessonForm.chapterId, lessonForm.title.trim())
     lessonForm.chapterId = 0
-    ElMessage.success('已新增课时（尚未挂载资产）')
+    ElMessage.success('已新增课时，上传视频后自动识别时长')
   })
 }
 
@@ -320,8 +325,8 @@ onMounted(async () => {
             class="catalog-alert"
             :title="
               publishError.reason === 'no_lessons'
-                ? '课程暂无课时，禁止上架'
-                : '存在未就绪课时（需 asset_status=encoded）'
+                ? '课程暂无课时，暂不能上架'
+                : '存在尚未完成转码的课时，暂不能上架'
             "
             @close="publishError = null"
           >
@@ -335,12 +340,16 @@ onMounted(async () => {
           <el-table :data="store.courses" size="small" row-key="id">
             <el-table-column prop="title" label="课程" min-width="160" />
             <el-table-column prop="subject_name" label="学科" width="110" />
-            <el-table-column prop="mode" label="模式" width="90" />
-            <el-table-column prop="access_type" label="授权" width="90" />
+            <el-table-column label="模式" width="90">
+              <template #default="{ row }">{{ courseModeLabel(row.mode) }}</template>
+            </el-table-column>
+            <el-table-column label="授权" width="90">
+              <template #default="{ row }">{{ accessLabel(row.access_type) }}</template>
+            </el-table-column>
             <el-table-column label="状态" width="90">
               <template #default="{ row }">
                 <el-tag size="small" :type="row.status === 'published' ? 'success' : 'info'">
-                  {{ row.status }}
+                  {{ courseStatusLabel(row.status) }}
                 </el-tag>
               </template>
             </el-table-column>
@@ -367,7 +376,7 @@ onMounted(async () => {
             </el-table-column>
           </el-table>
           <p class="catalog-hint">
-            共 {{ store.total }} 门课程；上架前置：学科启用 + 至少 1 课时 + 全部课时资产 encoded。
+            共 {{ store.total }} 门课程；上架条件：学科已启用、至少 1 课时、且全部课时已完成转码。
           </p>
         </el-card>
       </el-col>
@@ -405,11 +414,12 @@ onMounted(async () => {
       <template v-if="detail">
         <el-descriptions :column="2" border class="catalog-desc">
           <el-descriptions-item label="学科">{{ detail.subject_name }}</el-descriptions-item>
-          <el-descriptions-item label="状态">{{ detail.status }}</el-descriptions-item>
-          <el-descriptions-item label="模式">{{ detail.mode }}</el-descriptions-item>
-          <el-descriptions-item label="授权">{{ detail.access_type }}</el-descriptions-item>
-          <el-descriptions-item label="版本">v{{ detail.version }}</el-descriptions-item>
-          <el-descriptions-item label="上架时间">{{ detail.published_at ?? '—' }}</el-descriptions-item>
+          <el-descriptions-item label="状态">{{ courseStatusLabel(detail.status) }}</el-descriptions-item>
+          <el-descriptions-item label="模式">{{ courseModeLabel(detail.mode) }}</el-descriptions-item>
+          <el-descriptions-item label="授权">{{ accessLabel(detail.access_type) }}</el-descriptions-item>
+          <el-descriptions-item label="上架时间" :span="2">
+            {{ detail.published_at ?? '—' }}
+          </el-descriptions-item>
         </el-descriptions>
 
         <div class="catalog-row catalog-row-top">
@@ -438,7 +448,6 @@ onMounted(async () => {
             <template #title>
               <span class="catalog-chapter-title">
                 {{ chapter.title }}
-                <el-tag size="small" type="info">v{{ chapter.version }}</el-tag>
               </span>
               <span class="catalog-node-actions" @click.stop>
                 <el-button link size="small" @click="moveChapter(chapter.id, -1)">↑</el-button>
@@ -451,14 +460,18 @@ onMounted(async () => {
 
             <el-table :data="chapter.lessons" size="small" row-key="id">
               <el-table-column prop="title" label="课时" min-width="150" />
-              <el-table-column prop="duration_sec" label="时长(秒)" width="90" />
+              <el-table-column label="时长" width="90">
+                <template #default="{ row }">
+                  {{ row.duration_sec > 0 ? formatDuration(row.duration_sec) : '—' }}
+                </template>
+              </el-table-column>
               <el-table-column label="资产" width="110">
                 <template #default="{ row }">
                   <el-tag
                     size="small"
                     :type="row.asset_status === 'encoded' ? 'success' : 'danger'"
                   >
-                    {{ row.asset_status ?? '未挂载' }}
+                    {{ assetStatusLabel(row.asset_status) }}
                   </el-tag>
                 </template>
               </el-table-column>
@@ -475,7 +488,6 @@ onMounted(async () => {
 
             <div v-if="lessonForm.chapterId === chapter.id" class="catalog-row">
               <el-input v-model="lessonForm.title" placeholder="课时标题" />
-              <el-input-number v-model="lessonForm.duration" :min="0" :max="1440" />
               <el-button type="primary" @click="addLesson">保存课时</el-button>
               <el-button @click="lessonForm.chapterId = 0">取消</el-button>
             </div>

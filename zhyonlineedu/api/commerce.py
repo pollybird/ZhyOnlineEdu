@@ -34,7 +34,11 @@ from zhyonlineedu.api.schemas import (
     PayReconcileIn,
     SubscriptionListOut,
 )
-from zhyonlineedu.core.auth.decorators import authenticate_request, require_permission
+from zhyonlineedu.core.auth.decorators import (
+    authenticate_request,
+    login_required,
+    require_permission,
+)
 from zhyonlineedu.core.codes import VALIDATION_FAILED
 from zhyonlineedu.core.envelope import ok
 from zhyonlineedu.core.errors import AppError
@@ -60,6 +64,21 @@ def _payload() -> dict[str, Any]:
 
 
 # ── 会员档位 ────────────────────────────────────────────────────────────────
+
+
+@bp.get("/member/offers")
+@login_required
+@documented(
+    "可购会员档位",
+    description=(
+        "学员端只读：仅返回已启用档位（按 sort_order 升序），用于会员页展示与下单。"
+        "管理端维护仍走 `/member/levels`（`member:manage`）。"
+    ),
+    response=MemberLevelListOut,
+    tags=("member",),
+)
+def list_member_offers() -> tuple[Response, int]:
+    return ok(_service().list_levels({"is_enabled": "true"}))
 
 
 @bp.get("/member/levels")

@@ -269,7 +269,6 @@ class ChapterReorderOut(BaseModel):
 class LessonCreateIn(BaseModel):
     title: str = Field(min_length=1, max_length=128)
     kind: Literal["video", "text", "live"] = "video"
-    duration_sec: int = Field(default=0, ge=0, le=86_400)
     is_free: bool = False
 
 
@@ -277,7 +276,6 @@ class LessonUpdateIn(BaseModel):
     version: int = Field(ge=1)
     title: str | None = Field(default=None, min_length=1, max_length=128)
     kind: Literal["video", "text", "live"] | None = None
-    duration_sec: int | None = Field(default=None, ge=0, le=86_400)
     is_free: bool | None = None
 
 
@@ -550,6 +548,77 @@ class MySummaryOut(BaseModel):
     today_watch_seconds: int = Field(description="今日有效观看秒数（source=play，已剔除预览）")
     recent_courses: list[CourseProgressOut]
     quiz: MyQuizSummaryOut
+    metric_version: str
+    freshness_seconds: int
+    generated_at: str
+
+
+# ── 学员端课程目录（M2.14）────────────────────────────────────────────────
+
+
+class LearnCourseProgressOut(BaseModel):
+    watch_seconds: int = Field(description="本人该课程累计观看秒数（已剔除预览）")
+    percent: float = Field(description="完成率 = 已完成课时 / 有效课时总数")
+    completed: bool
+    completed_lessons: int
+    resume_lesson_id: int | None
+    resume_position: int
+    last_watch_at: str | None
+
+
+class LearnLessonProgressOut(BaseModel):
+    watch_seconds: int
+    percent: float
+    completed: bool
+    last_position: int = Field(description="续播位置（秒）")
+    last_watch_at: str | None
+
+
+class LearnCourseOut(BaseModel):
+    course_id: int
+    title: str
+    summary: str | None
+    cover_url: str | None
+    subject_id: int
+    subject_name: str | None
+    access_type: str = Field(description="public|member|class")
+    mode: str = Field(description="internal|external|both")
+    total_lessons: int
+    total_duration_sec: int
+    first_lesson_id: int | None = Field(description="首个可播课时；空课程为 null")
+    access_ok: bool = Field(description="UI 提示，最终裁决在取票接口")
+    progress: LearnCourseProgressOut | None
+
+
+class LearnCourseListOut(BaseModel):
+    items: list[LearnCourseOut]
+    total: int
+    page: int
+    page_size: int
+    metric_version: str
+    freshness_seconds: int
+    generated_at: str
+
+
+class LearnLessonOut(BaseModel):
+    lesson_id: int
+    title: str
+    kind: str
+    duration_sec: int
+    is_free: bool
+    asset_status: str | None = Field(description="encoded 才可播放；None 表示未挂载")
+    progress: LearnLessonProgressOut | None
+
+
+class LearnChapterOut(BaseModel):
+    chapter_id: int
+    title: str
+    lessons: list[LearnLessonOut]
+
+
+class LearnCourseDetailOut(BaseModel):
+    course: LearnCourseOut
+    chapters: list[LearnChapterOut]
     metric_version: str
     freshness_seconds: int
     generated_at: str

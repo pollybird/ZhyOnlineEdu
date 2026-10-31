@@ -2178,15 +2178,376 @@
         ],
         "type": "object"
       },
-      "LessonCreateIn": {
+      "LearnChapterOut": {
         "properties": {
+          "chapter_id": {
+            "title": "Chapter Id",
+            "type": "integer"
+          },
+          "lessons": {
+            "items": {
+              "$ref": "#/components/schemas/LearnLessonOut"
+            },
+            "title": "Lessons",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "chapter_id",
+          "title",
+          "lessons"
+        ],
+        "type": "object"
+      },
+      "LearnCourseDetailOut": {
+        "properties": {
+          "chapters": {
+            "items": {
+              "$ref": "#/components/schemas/LearnChapterOut"
+            },
+            "title": "Chapters",
+            "type": "array"
+          },
+          "course": {
+            "$ref": "#/components/schemas/LearnCourseOut"
+          },
+          "freshness_seconds": {
+            "title": "Freshness Seconds",
+            "type": "integer"
+          },
+          "generated_at": {
+            "title": "Generated At",
+            "type": "string"
+          },
+          "metric_version": {
+            "title": "Metric Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "course",
+          "chapters",
+          "metric_version",
+          "freshness_seconds",
+          "generated_at"
+        ],
+        "type": "object"
+      },
+      "LearnCourseListOut": {
+        "properties": {
+          "freshness_seconds": {
+            "title": "Freshness Seconds",
+            "type": "integer"
+          },
+          "generated_at": {
+            "title": "Generated At",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/LearnCourseOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "metric_version": {
+            "title": "Metric Version",
+            "type": "string"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size",
+          "metric_version",
+          "freshness_seconds",
+          "generated_at"
+        ],
+        "type": "object"
+      },
+      "LearnCourseOut": {
+        "properties": {
+          "access_ok": {
+            "description": "UI 提示，最终裁决在取票接口",
+            "title": "Access Ok",
+            "type": "boolean"
+          },
+          "access_type": {
+            "description": "public|member|class",
+            "title": "Access Type",
+            "type": "string"
+          },
+          "course_id": {
+            "title": "Course Id",
+            "type": "integer"
+          },
+          "cover_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cover Url"
+          },
+          "first_lesson_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "首个可播课时；空课程为 null",
+            "title": "First Lesson Id"
+          },
+          "mode": {
+            "description": "internal|external|both",
+            "title": "Mode",
+            "type": "string"
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LearnCourseProgressOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "subject_id": {
+            "title": "Subject Id",
+            "type": "integer"
+          },
+          "subject_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject Name"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "total_duration_sec": {
+            "title": "Total Duration Sec",
+            "type": "integer"
+          },
+          "total_lessons": {
+            "title": "Total Lessons",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "course_id",
+          "title",
+          "summary",
+          "cover_url",
+          "subject_id",
+          "subject_name",
+          "access_type",
+          "mode",
+          "total_lessons",
+          "total_duration_sec",
+          "first_lesson_id",
+          "access_ok",
+          "progress"
+        ],
+        "type": "object"
+      },
+      "LearnCourseProgressOut": {
+        "properties": {
+          "completed": {
+            "title": "Completed",
+            "type": "boolean"
+          },
+          "completed_lessons": {
+            "title": "Completed Lessons",
+            "type": "integer"
+          },
+          "last_watch_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Watch At"
+          },
+          "percent": {
+            "description": "完成率 = 已完成课时 / 有效课时总数",
+            "title": "Percent",
+            "type": "number"
+          },
+          "resume_lesson_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resume Lesson Id"
+          },
+          "resume_position": {
+            "title": "Resume Position",
+            "type": "integer"
+          },
+          "watch_seconds": {
+            "description": "本人该课程累计观看秒数（已剔除预览）",
+            "title": "Watch Seconds",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "watch_seconds",
+          "percent",
+          "completed",
+          "completed_lessons",
+          "resume_lesson_id",
+          "resume_position",
+          "last_watch_at"
+        ],
+        "type": "object"
+      },
+      "LearnLessonOut": {
+        "properties": {
+          "asset_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "encoded 才可播放；None 表示未挂载",
+            "title": "Asset Status"
+          },
           "duration_sec": {
-            "default": 0,
-            "maximum": 86400,
-            "minimum": 0,
             "title": "Duration Sec",
             "type": "integer"
           },
+          "is_free": {
+            "title": "Is Free",
+            "type": "boolean"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "lesson_id": {
+            "title": "Lesson Id",
+            "type": "integer"
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LearnLessonProgressOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lesson_id",
+          "title",
+          "kind",
+          "duration_sec",
+          "is_free",
+          "asset_status",
+          "progress"
+        ],
+        "type": "object"
+      },
+      "LearnLessonProgressOut": {
+        "properties": {
+          "completed": {
+            "title": "Completed",
+            "type": "boolean"
+          },
+          "last_position": {
+            "description": "续播位置（秒）",
+            "title": "Last Position",
+            "type": "integer"
+          },
+          "last_watch_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Watch At"
+          },
+          "percent": {
+            "title": "Percent",
+            "type": "number"
+          },
+          "watch_seconds": {
+            "title": "Watch Seconds",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "watch_seconds",
+          "percent",
+          "completed",
+          "last_position",
+          "last_watch_at"
+        ],
+        "type": "object"
+      },
+      "LessonCreateIn": {
+        "properties": {
           "is_free": {
             "default": false,
             "title": "Is Free",
@@ -2282,20 +2643,6 @@
       },
       "LessonUpdateIn": {
         "properties": {
-          "duration_sec": {
-            "anyOf": [
-              {
-                "maximum": 86400,
-                "minimum": 0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Duration Sec"
-          },
           "is_free": {
             "anyOf": [
               {
@@ -9323,6 +9670,226 @@
         ]
       }
     },
+    "/api/v1/learn/courses": {
+      "get": {
+        "description": "只返回 `published` 课程（学科未删除且启用），并按当前场景模式过滤 （`mode=both` 或当前模式）；支持 subject_id / keyword 过滤与分页。每张卡片带课时数、总时长、首个可播课时、本人课程进度与 `access_ok`（仅为 UI 提示，最终授权以 `POST /media/tickets` 为准）。",
+        "operationId": "playback.student_courses.get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "integer"
+                        }
+                      ]
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/LearnCourseListOut"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "data",
+                    "request_id"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "统一成功信封"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "统一失败信封"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "统一失败信封"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "统一失败信封"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "统一失败信封"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "统一失败信封"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "学员端课程列表",
+        "tags": [
+          "learn",
+          "catalog"
+        ],
+        "x-zhy-progress-version": "zhy-progress-v2"
+      }
+    },
+    "/api/v1/learn/courses/{course_id}": {
+      "get": {
+        "description": "返回已上架课程的章 / 课时与每课时学习进度（含续播位置与完成态）、资产就绪状态与课程级进度；未上架/模式不可见/已删除统一 404（不泄露存在性）。",
+        "operationId": "playback.student_course_detail.get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "course_id",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "integer"
+                        }
+                      ]
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/LearnCourseDetailOut"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "data",
+                    "request_id"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "统一成功信封"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "统一失败信封"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "统一失败信封"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "统一失败信封"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "统一失败信封"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "统一失败信封"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "学员端课程详情",
+        "tags": [
+          "learn",
+          "catalog"
+        ],
+        "x-zhy-progress-version": "zhy-progress-v2"
+      }
+    },
     "/api/v1/learn/progress": {
       "post": {
         "description": "HTTP 202 + code=202：网关分配 gw_seq 并追加 learn_progress_log（事实源），响应到达即表示已落盘；同一 30s 桶重复上报只计一次（deduped=true）。投影表由单写者 worker 落库，HTTP 路径不写 learn_progress。",
@@ -11828,6 +12395,109 @@
           }
         ],
         "summary": "我的会员",
+        "tags": [
+          "member"
+        ]
+      }
+    },
+    "/api/v1/member/offers": {
+      "get": {
+        "description": "学员端只读：仅返回已启用档位（按 sort_order 升序），用于会员页展示与下单。管理端维护仍走 `/member/levels`（`member:manage`）。",
+        "operationId": "commerce.list_member_offers.get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "integer"
+                        }
+                      ]
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/MemberLevelListOut"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "data",
+                    "request_id"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "统一成功信封"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "统一失败信封"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "统一失败信封"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "统一失败信封"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "统一失败信封"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "统一失败信封"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "可购会员档位",
         "tags": [
           "member"
         ]

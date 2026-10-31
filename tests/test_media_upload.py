@@ -513,6 +513,8 @@ def test_complete_success_marks_asset_uploaded(tmp_path: Path) -> None:
     assert len(asset) == 1
     assert asset[0]["status"] == "uploaded"
     assert asset[0]["duration_sec"] == 42
+    # 课时时长由视频探测结果派生，不再由管理端手工填写。
+    assert _lesson_duration(tmp_path) == 42
 
     status = _data(client.get(f"/api/v1/media/uploads/{upload['upload_id']}", headers=headers))
     _assert_matches(UploadStatusOut, status)
@@ -531,6 +533,8 @@ def test_complete_magic_fallback_when_ffprobe_missing(tmp_path: Path) -> None:
     assert completed["probe_source"] == "magic"
     assert completed["format_name"] == "mp4"
     assert completed["duration_sec"] == 0
+    # 拿不到时长时不清空既有课时时长（本用例初始为 0）。
+    assert _lesson_duration(tmp_path) == 0
 
 
 def test_status_and_delete(tmp_path: Path) -> None:
@@ -628,5 +632,17 @@ def _asset_rows(tmp_path: Path) -> list[dict[str, Any]]:
                 {"status": row.status, "duration_sec": row.duration_sec, "lesson_id": row.lesson_id}
                 for row in rows
             ]
+    finally:
+        engine.dispose()
+
+
+def _lesson_duration(tmp_path: Path) -> int:
+    config = _config(tmp_path)
+    engine = create_db_engine(config.get_str("db.url"), "sqlite")
+    try:
+        with Session(engine) as session:
+            lesson = session.get(EduCourseLesson, LESSON_ID)
+            assert lesson is not None
+            return int(lesson.duration_sec)
     finally:
         engine.dispose()

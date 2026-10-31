@@ -84,6 +84,16 @@ def derive_aes_key(secret: bytes, kid: str) -> bytes:
     return hmac.new(secret, kid.encode("ascii"), hashlib.sha256).digest()[:AES_KEY_BYTES]
 
 
+def decrypt_aes128_cbc(data: bytes, key: bytes, iv: bytes) -> bytes:
+    """解密 HLS AES-128 分片（产物校验/自检用）；不做填充剥离，探测前若干 TS 包足够。"""
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+    if len(key) != AES_KEY_BYTES or len(iv) != AES_KEY_BYTES:
+        raise ValueError("invalid key or iv length")
+    decryptor = Cipher(algorithms.AES(key), modes.CBC(iv)).decryptor()
+    return decryptor.update(data) + decryptor.finalize()
+
+
 def derive_sign_key(secret: bytes) -> bytes:
     return hmac.new(secret, SIGN_DOMAIN, hashlib.sha256).digest()
 
@@ -104,6 +114,7 @@ __all__ = [
     "KEY_URI_TEMPLATE",
     "MediaKeyError",
     "SIGN_DOMAIN",
+    "decrypt_aes128_cbc",
     "derive_aes_key",
     "derive_sign_key",
     "load_master_secret",

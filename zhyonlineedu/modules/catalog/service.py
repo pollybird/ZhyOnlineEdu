@@ -752,7 +752,7 @@ class CatalogService:
     def create_lesson(self, chapter_id: int, body: Mapping[str, Any]) -> dict[str, Any]:
         title = _text(body.get("title"), "title", max_len=128)
         kind = _choice(body.get("kind", "video"), "kind", LESSON_KINDS)
-        duration_sec = _int(body.get("duration_sec", 0), "duration_sec", maximum=86_400)
+        # 时长为派生值：上传视频后由探测结果写入，创建/编辑时不接受人工输入。
         is_free = body.get("is_free", False)
         if not isinstance(is_free, bool):
             _fail("is_free 必须是布尔值")
@@ -776,7 +776,7 @@ class CatalogService:
                 course_id=chapter.course_id,
                 title=title,
                 kind=kind,
-                duration_sec=duration_sec,
+                duration_sec=0,
                 is_free=is_free,
                 sort_order=int(max_order) + SORT_STEP,
                 version=1,
@@ -805,10 +805,6 @@ class CatalogService:
                 values["title"] = title
             if "kind" in body:
                 values["kind"] = _choice(body.get("kind"), "kind", LESSON_KINDS)
-            if "duration_sec" in body:
-                values["duration_sec"] = _int(
-                    body.get("duration_sec"), "duration_sec", maximum=86_400
-                )
             if "is_free" in body:
                 is_free = body.get("is_free")
                 if not isinstance(is_free, bool):

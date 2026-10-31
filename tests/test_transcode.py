@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -60,8 +61,10 @@ from zhyonlineedu.core.db.models.media import (
 from zhyonlineedu.core.media.hls import (
     HlsVerifyError,
     parse_master,
+    parse_variant,
     verify_hls,
 )
+from zhyonlineedu.core.media.keys import decrypt_aes128_cbc
 from zhyonlineedu.core.media.runtime import (
     KeyMaterial,
     RenderSpec,
@@ -70,6 +73,7 @@ from zhyonlineedu.core.media.runtime import (
     SandboxRunner,
     build_hls_command,
     build_poster_command,
+    encode_threads,
     tail,
 )
 from zhyonlineedu.modules.media.transcode_service import TranscodeService
@@ -81,6 +85,14 @@ LESSON_ID = 1
 UPLOAD_ID = "a" * 32
 KID = "b" * 32
 DURATION = 8
+# HLS 分片是 AES-128-CBC 密文：16 字节明文块 + 固定 IV，供解密探测回归用
+PLAIN_TS = b"TSPKT-h264-probe"
+IV_HEX = "00112233445566778899aabbccddeeff"
+
+
+def _encrypt(plain: bytes, key: bytes, iv: bytes) -> bytes:
+    encryptor = Cipher(algorithms.AES(key), modes.CBC(iv)).encryptor()
+    return encryptor.update(plain) + encryptor.finalize()
 
 
 @pytest.fixture(autouse=True)
@@ -232,11 +244,44 @@ class FakeRunner:
         return RunResult(0, "", 0.01, self._profile())
 
 
-def _service(config: Config, runner: Any = None) -> TranscodeService:
+class EncryptedRunner(FakeRunner):
+    """模拟真实 ffmpeg 加密产物：分片是 AES-128-CBC 密文，playlist 声明显式 IV。"""
+
+    iv = bytes.fromhex(IV_HEX)
+
+    def run(self, spec: RenderSpec) -> RunResult:
+        self.calls.append(spec)
+        if spec.kind == "poster":
+            (spec.out_dir / "poster.jpg").write_bytes(b"\xff\xd8poster")
+            return RunResult(0, "", 0.01, self._profile())
+        if spec.profile in self.fail_profiles:
+            return RunResult(1, self.stderr, 0.01, self._profile())
+        assert spec.key is not None
+        key = spec.key.key_path.read_bytes()
+        (spec.out_dir / "seg_000.ts").write_bytes(_encrypt(PLAIN_TS, key, self.iv))
+        playlist = "\n".join(
+            [
+                "#EXTM3U",
+                "#EXT-X-VERSION:3",
+                "#EXT-X-TARGETDURATION:4",
+                f'#EXT-X-KEY:METHOD=AES-128,URI="{spec.key.uri}",IV=0x{self.iv.hex()}',
+                f"#EXTINF:{spec.duration_sec / 2:.2f},",
+                "seg_000.ts",
+                f"#EXTINF:{spec.duration_sec / 2:.2f},",
+                "seg_000.ts",
+                "#EXT-X-ENDLIST",
+                "",
+            ]
+        )
+        (spec.out_dir / "index.m3u8").write_text(playlist, encoding="utf-8")
+        return RunResult(0, "", 0.01, self._profile())
+
+
+def _service(config: Config, runner: Any = None, prober: Any = None) -> TranscodeService:
     return TranscodeService(
         config,
         runner=runner or FakeRunner(),
-        codec_prober=lambda _path: None,
+        codec_prober=prober or (lambda _path: None),
     )
 
 
@@ -301,8 +346,12 @@ def _write_hls(
     segment: bool = True,
     master_uri: str | None = None,
     key_uri: str | None = None,
+    iv: str | None = None,
 ) -> None:
     root.mkdir(parents=True, exist_ok=True)
+    key_line = f'#EXT-X-KEY:METHOD=AES-128,URI="{key_uri or f"/api/v1/media/key/{kid}"}"'
+    if iv is not None:
+        key_line += f",IV=0x{iv}"
     lines = ["#EXTM3U", "#EXT-X-VERSION:3"]
     for profile in profiles:
         lines += [
@@ -318,7 +367,7 @@ def _write_hls(
                 [
                     "#EXTM3U",
                     "#EXT-X-VERSION:3",
-                    f'#EXT-X-KEY:METHOD=AES-128,URI="{key_uri or f"/api/v1/media/key/{kid}"}"',
+                    key_line,
                     "#EXTINF:4.00,",
                     "seg_000.ts",
                     "#EXTINF:4.00,",
@@ -381,6 +430,107 @@ def test_verify_hls_enforces_duration_and_profile(tmp_path: Path) -> None:
     assert exc.value.reason == "profile_mismatch"
 
 
+def test_parse_variant_reads_explicit_iv(tmp_path: Path) -> None:
+    """ffmpeg 加密产物必须显式声明 IV；解析结果供解密探测使用（M2.4 回归）。"""
+    _write_hls(tmp_path, profiles=("360",), iv=IV_HEX)
+    assert parse_variant(tmp_path, "360", "360/index.m3u8").iv == bytes.fromhex(IV_HEX)
+
+    plain = tmp_path / "plain"
+    _write_hls(plain, profiles=("360",))
+    assert parse_variant(plain, "360", "360/index.m3u8").iv is None
+
+
+def test_parse_variant_rejects_partial_iv(tmp_path: Path) -> None:
+    variant_dir = tmp_path / "360"
+    variant_dir.mkdir(parents=True)
+    (variant_dir / "seg_000.ts").write_bytes(b"0123456789")
+    (variant_dir / "index.m3u8").write_text(
+        "\n".join(
+            [
+                "#EXTM3U",
+                f'#EXT-X-KEY:METHOD=AES-128,URI="/api/v1/media/key/{KID}",IV=',
+                "#EXTINF:4.00,",
+                "seg_000.ts",
+                "#EXT-X-ENDLIST",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(HlsVerifyError) as exc:
+        parse_variant(tmp_path, "360", "360/index.m3u8")
+    assert exc.value.reason == "key_declaration_invalid"
+
+
+def test_decrypt_aes128_cbc_roundtrip() -> None:
+    key = bytes(range(16))
+    iv = bytes(range(16, 32))
+    assert decrypt_aes128_cbc(_encrypt(PLAIN_TS, key, iv), key, iv) == PLAIN_TS
+    with pytest.raises(ValueError):
+        decrypt_aes128_cbc(b"x" * 16, b"short", iv)
+
+
+def _write_encrypted_variant(root: Path, *, key: bytes, iv: bytes, profile: str = "360") -> Path:
+    """写真实 AES-128-CBC 加密的单分片变体（模拟 ffmpeg 加密产物）。"""
+    variant_dir = root / profile
+    variant_dir.mkdir(parents=True, exist_ok=True)
+    segment = variant_dir / "seg_000.ts"
+    segment.write_bytes(_encrypt(PLAIN_TS, key, iv))
+    (variant_dir / "index.m3u8").write_text(
+        "\n".join(
+            [
+                "#EXTM3U",
+                "#EXT-X-VERSION:3",
+                f'#EXT-X-KEY:METHOD=AES-128,URI="/api/v1/media/key/{KID}",IV=0x{iv.hex()}',
+                "#EXTINF:4.00,",
+                "seg_000.ts",
+                "#EXT-X-ENDLIST",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return segment
+
+
+def test_probe_segments_decrypts_ciphertext(tmp_path: Path) -> None:
+    """密文分片直接交给 ffprobe 只能得到 unknown，必须用任务 key + IV 解密后再探测。"""
+    config = _config(tmp_path)
+    service = _service(config)
+    key = bytes(range(16))
+    iv = bytes.fromhex(IV_HEX)
+    staging = tmp_path / "staging"
+    segment = _write_encrypted_variant(staging, key=key, iv=iv)
+    key_path = tmp_path / "kid.key"
+    key_path.write_bytes(key)
+
+    probe_dir = tmp_path / "codec-probe"
+    mapping = service._decrypted_probe_segments(  # noqa: SLF001 - 直接验证解密探测路径
+        probe_dir, staging, ("360",), key_path
+    )
+    target = mapping[segment]
+    assert target.read_bytes() == PLAIN_TS
+    assert target.stat().st_mode & 0o777 == 0o600
+    assert probe_dir.stat().st_mode & 0o777 == 0o700
+
+    # 拿不到 key 或 playlist 没有 IV 时不能造明文副本（否则探测又落回密文）
+    missing = tmp_path / "missing.key"
+    assert (
+        service._decrypted_probe_segments(  # noqa: SLF001
+            tmp_path / "probe-missing", staging, ("360",), missing
+        )
+        == {}
+    )
+    plain_root = tmp_path / "plain"
+    _write_hls(plain_root, profiles=("360",))
+    assert (
+        service._decrypted_probe_segments(  # noqa: SLF001
+            tmp_path / "probe-noiv", plain_root, ("360",), key_path
+        )
+        == {}
+    )
+
+
 # ── 沙箱命令与路径红线 ────────────────────────────────────────────────────
 
 
@@ -410,6 +560,66 @@ def test_commands_are_enum_derived(tmp_path: Path) -> None:
     poster = build_poster_command(spec)
     assert poster[-1] == "poster.jpg"
     assert "-ss" in poster
+
+
+def test_encode_threads_follows_cpu_quota() -> None:
+    # 每 50% 配额 1 线程，封顶 8：宿主 8 核默认 12 线程会把 RLIMIT_AS(2048MB) 耗尽
+    assert encode_threads(50) == 1
+    assert encode_threads(100) == 2
+    assert encode_threads(200) == 4
+    assert encode_threads(800) == 8
+    assert encode_threads(1000) == 8
+
+
+def test_hls_command_injects_clamped_threads(tmp_path: Path) -> None:
+    key = KeyMaterial(
+        kid=KID,
+        key_path=tmp_path / "k.key",
+        info_path=tmp_path / "k.info",
+        uri=f"/api/v1/media/key/{KID}",
+    )
+    spec = RenderSpec(
+        kind="hls",
+        source=tmp_path / "source.bin",
+        out_dir=tmp_path / "out",
+        segment_sec=4,
+        duration_sec=8,
+        profile="1080",
+        key=key,
+    )
+    plain = build_hls_command(spec)
+    assert "-threads" not in plain
+    argv = build_hls_command(spec, threads=4)
+    index = argv.index("-profile:v")
+    assert argv[index : index + 4] == ["-profile:v", "main", "-threads", "4"]
+    assert build_hls_command(spec, threads=0)[index + 3] == "1"
+    assert build_hls_command(spec, threads=64)[index + 3] == "8"
+
+
+def test_runner_derives_threads_from_cpu_quota(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runner = SandboxRunner(
+        backend="disabled", cpu_max_percent=200, allowed_roots=(tmp_path,), timeout_sec=30
+    )
+    monkeypatch.setattr(runner, "ffmpeg_path", lambda: "/usr/bin/ffmpeg")
+    spec = RenderSpec(
+        kind="hls",
+        source=tmp_path / "source.bin",
+        out_dir=tmp_path / "out",
+        segment_sec=4,
+        duration_sec=8,
+        profile="1080",
+        key=KeyMaterial(
+            kid=KID,
+            key_path=tmp_path / "k.key",
+            info_path=tmp_path / "k.info",
+            uri=f"/api/v1/media/key/{KID}",
+        ),
+    )
+    argv = runner._inner_command(spec)  # noqa: SLF001 - 断言命令派生
+    assert argv[0] == "/usr/bin/ffmpeg"
+    assert argv[argv.index("-threads") + 1] == "4"
 
 
 def test_sandbox_rejects_paths_outside_root(tmp_path: Path) -> None:
@@ -549,6 +759,53 @@ def test_run_job_publishes_asset(tmp_path: Path) -> None:
     # 密钥材料只以 0400 临时文件存在，发布后不得残留
     assert list(hls.rglob("*.key")) == []
     assert list(hls.rglob("*.info")) == []
+
+
+def test_publish_rewrites_legacy_manual_lesson_duration(tmp_path: Path) -> None:
+    """老数据课时时长可能是人工填写：发布成功时以视频探测得到的时长为准。"""
+    config = _seed(tmp_path)
+    engine = create_db_engine(config.get_str("db.url"), "sqlite")
+    try:
+        with Session(engine) as session:
+            lesson = session.get(EduCourseLesson, LESSON_ID)
+            assert lesson is not None
+            lesson.duration_sec = 999
+            session.commit()
+    finally:
+        engine.dispose()
+
+    service = _service(config, FakeRunner())
+    service.enqueue(LESSON_ID, ["360", "720"])
+    assert service.run_next() is not None
+
+    lesson = _rows(tmp_path, EduCourseLesson)[0]
+    assert lesson.duration_sec == DURATION
+
+
+def test_run_job_probes_decrypted_segment_for_codec(tmp_path: Path) -> None:
+    """回归：分片是 AES-128 密文，必须解密后再探测 codec，否则恒为 unknown → ENC-1003。"""
+    config = _seed(tmp_path)
+    service = _service(
+        config,
+        EncryptedRunner(),
+        # 模拟 ffprobe：密文探测不出编码（unknown 不在白名单）
+        prober=lambda path: "h264" if path.read_bytes().startswith(b"TSPKT-") else "unknown",
+    )
+    service.enqueue(LESSON_ID, ["360", "720"])
+    assert service.run_next() is not None
+
+    asset = _rows(tmp_path, MediaAsset)[0]
+    job = _rows(tmp_path, MediaTranscodeJob)[0]
+    assert asset.status == "encoded"
+    assert asset.playlist_version == 2
+    assert job.status == "succeeded"
+
+    hls = service.hls_dir(LESSON_ID)
+    assert (hls / "master.m3u8").is_file()
+    # 明文探测副本只能临时存在，绝不能混入发布产物
+    assert not (service.asset_dir(LESSON_ID) / "codec-probe").exists()
+    for profile in ("360", "720"):
+        assert (hls / profile / "seg_000.ts").read_bytes() != PLAIN_TS
 
 
 def test_run_job_retries_then_fails_without_bumping_version(tmp_path: Path) -> None:

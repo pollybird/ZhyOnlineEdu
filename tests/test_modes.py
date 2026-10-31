@@ -617,6 +617,46 @@ def test_inflight_ticket_survives_flip(tmp_path: Path) -> None:
     assert "360/index.m3u8" in master.get_data(as_text=True)
 
 
+def test_master_variant_urls_survive_abr_switch(tmp_path: Path) -> None:
+    """master 下发的各档位 URI 在票据有效期内可复用。
+
+    hls.js / 原生 HLS 的 ABR 切换直接使用 master 里的变体 URI，不会重新拉 master；
+    旧实现每次 playlist 请求都轮换 nonce，第二次取变体必然 40201 `playlist_stale`，
+    表现为播放几秒后「网络连接失败」。
+    """
+    config = _seed(tmp_path)
+    client = _client(config)
+    student = _login(client, "student")
+    issued = client.post("/api/v1/media/tickets", json={"lesson_id": L_PUBLIC}, headers=student)
+    assert issued.status_code == 200, issued.get_json()
+    master_url = str(issued.get_json()["data"]["playlist_url"])
+
+    master = client.get(master_url)
+    assert master.status_code == 200, master.get_json()
+    variants = [
+        line
+        for line in master.get_data(as_text=True).splitlines()
+        if line != "" and not line.startswith("#")
+    ]
+    assert len(variants) == 2
+
+    first = client.get(variants[0])
+    assert first.status_code == 200, first.get_json()
+    # 模拟 ABR 切档：仍用 master 里下发的另一个变体 URI
+    second = client.get(variants[1])
+    assert second.status_code == 200, second.get_json()
+    # master 本身也可重复拉取（播放器网络错误重试路径）
+    assert client.get(master_url).status_code == 200
+
+    key_line = next(
+        line for line in first.get_data(as_text=True).splitlines() if line.startswith("#EXT-X-KEY")
+    )
+    key_url = key_line.split('URI="', 1)[1].split('"', 1)[0]
+    # nonce 复用窗口内允许播放器多次取 key（切档后 key URI 字节相同）
+    assert client.get(key_url).status_code == 200
+    assert client.get(key_url).status_code == 200
+
+
 # ── 3. 切换向导 ──────────────────────────────────────────────────────────
 
 

@@ -180,9 +180,9 @@ export const useCatalogStore = defineStore('catalog', () => {
     await loadDetail(courseId)
   }
 
-  async function addLesson(chapterId: number, title: string, durationSec: number): Promise<void> {
+  async function addLesson(chapterId: number, title: string): Promise<void> {
     if (detail.value === null) return
-    await catalogApi.createLesson(chapterId, { title, duration_sec: durationSec })
+    await catalogApi.createLesson(chapterId, { title })
     await loadDetail(detail.value.id)
   }
 

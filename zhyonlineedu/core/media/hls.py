@@ -8,6 +8,8 @@
 - 所有分片必须是同目录下的 `*.ts`、字节数 > 0、无外部引用；
 - 变体总时长与源时长误差 ≤ max(2s, 2%)；
 - 可选 codec 白名单：由注入的 `codec_prober` 探测首个分片（ffprobe 不可用时跳过）。
+  HLS 分片是 AES-128 密文，调用方需先用 `#EXT-X-KEY` 的 IV 解密再探测
+  （`Variant.iv` 由本模块解析提供）。
 
 任何一条不满足都抛 `HlsVerifyError`，服务层据此把 asset 标 `failed`，
 且**不**递增 `playlist_version`（旧产物继续可用）。
@@ -30,7 +32,8 @@ _SEGMENT = re.compile(r"^[A-Za-z0-9._-]+\.ts$")
 _KEY_URI = re.compile(r"^/api/v1/media/key/[0-9a-f]{32}$")
 _SAFE_URI = re.compile(r"^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$")
 _EXTINF = re.compile(r"^#EXTINF:([0-9]+(?:\.[0-9]+)?)")
-_KEY = re.compile(r'^#EXT-X-KEY:METHOD=([A-Z0-9-]+),URI="([^"]+)"')
+_KEY = re.compile(r'^#EXT-X-KEY:METHOD=([A-Z0-9-]+),URI="([^"]+)"(?:,IV=0x([0-9A-Fa-f]{32}))?')
+_IV_ATTR = ",IV="
 
 
 class HlsVerifyError(Exception):
@@ -46,6 +49,7 @@ class Variant:
     key_uri: str
     segments: tuple[Path, ...]
     duration_sec: float
+    iv: bytes | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,19 +115,21 @@ def parse_variant(root: Path, profile: str, uri: str) -> Variant:
     if not lines or lines[0] != "#EXTM3U":
         raise HlsVerifyError("variant_invalid")
     key_uri: str | None = None
+    iv: bytes | None = None
     segments: list[Path] = []
     duration = 0.0
     for line in lines:
         if line.startswith("#EXT-X-KEY"):
             match = _KEY.match(line)
-            if match is None:
+            if match is None or (_IV_ATTR in line and match.group(3) is None):
                 raise HlsVerifyError("key_declaration_invalid")
-            method, key = match.groups()
+            method, key, iv_hex = match.groups()
             if method != "AES-128":
                 raise HlsVerifyError("key_method_invalid")
             if not _KEY_URI.fullmatch(key):
                 raise HlsVerifyError("key_uri_invalid")
             key_uri = key
+            iv = bytes.fromhex(iv_hex) if iv_hex else None
             continue
         if line.startswith("#EXTINF"):
             match = _EXTINF.match(line)
@@ -149,6 +155,7 @@ def parse_variant(root: Path, profile: str, uri: str) -> Variant:
         key_uri=key_uri,
         segments=tuple(segments),
         duration_sec=round(duration, 3),
+        iv=iv,
     )
 
 

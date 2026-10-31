@@ -38,6 +38,11 @@ SYSTEMD_RUN_NAME = "systemd-run"
 PROFILE_HEIGHTS: dict[str, int] = {"360": 360, "720": 720, "1080": 1080}
 ALLOWED_PROFILES: tuple[str, ...] = tuple(PROFILE_HEIGHTS)
 
+# x264 线程上限。ffmpeg 默认按宿主核数派生线程（8 核 → 12 线程），既超出 CPUQuota，
+# 也会在 1080p 初始化时把 RLIMIT_AS（默认 2048MB）耗尽：实测 12 线程直接
+# `malloc of size 11453504 failed`（SIGSEGV），6~8 线程在 2048MB 内可正常完成。
+MAX_ENCODE_THREADS = 8
+
 # 输出字节上限（RLIMIT_FSIZE）：单课时 4TB 规模下，单任务 8GB 已远高于实际需求
 OUTPUT_FSIZE_BYTES = 8 * 1024**3
 NOFILE_LIMIT = 512
@@ -106,6 +111,15 @@ def _height(profile: str) -> int:
         raise SandboxError("unknown_profile") from None
 
 
+def encode_threads(cpu_max_percent: int) -> int:
+    """按 CPU 配额推导 x264 线程数（每 50% 配额 1 线程，封顶 MAX_ENCODE_THREADS）。
+
+    不跟随宿主核数：线程越多，x264 的帧缓冲/前瞻队列占用越大，最终撞上
+    `RLIMIT_AS = mem_max_mb`；生产部署的 CPUQuota 也远小于宿主核数。
+    """
+    return max(1, min(MAX_ENCODE_THREADS, cpu_max_percent // 50))
+
+
 def _check_paths(spec: RenderSpec, allowed_roots: Sequence[Path]) -> None:
     for path in (spec.source, spec.out_dir):
         text = str(path)
@@ -125,11 +139,11 @@ def _check_paths(spec: RenderSpec, allowed_roots: Sequence[Path]) -> None:
                 raise SandboxError("key_outside_allowed_root")
 
 
-def build_hls_command(spec: RenderSpec) -> list[str]:
+def build_hls_command(spec: RenderSpec, *, threads: int | None = None) -> list[str]:
     if spec.key is None:
         raise SandboxError("missing_key_material")
     height = _height(spec.profile)
-    return [
+    command = [
         FFMPEG_NAME,
         "-hide_banner",
         "-nostdin",
@@ -150,6 +164,10 @@ def build_hls_command(spec: RenderSpec) -> list[str]:
         "23",
         "-profile:v",
         "main",
+    ]
+    if threads is not None:
+        command += ["-threads", str(max(1, min(MAX_ENCODE_THREADS, threads)))]
+    command += [
         "-c:a",
         "aac",
         "-b:a",
@@ -170,6 +188,7 @@ def build_hls_command(spec: RenderSpec) -> list[str]:
         str(spec.key.info_path),
         "index.m3u8",
     ]
+    return command
 
 
 def build_poster_command(spec: RenderSpec) -> list[str]:
@@ -264,10 +283,16 @@ class SandboxRunner:
     # ── 内部：命令派生 ────────────────────────────────────────────────────
 
     def _inner_command(self, spec: RenderSpec) -> list[str]:
-        command = build_hls_command(spec) if spec.kind == "hls" else build_poster_command(spec)
+        if spec.kind == "hls":
+            command = build_hls_command(spec, threads=self._encode_threads())
+        else:
+            command = build_poster_command(spec)
         # argv[0] 必须是实际二进制绝对路径（build_* 只给出逻辑名）
         command[0] = self.ffmpeg_path()
         return command
+
+    def _encode_threads(self) -> int:
+        return encode_threads(self.cpu_max_percent)
 
     def _check(self, spec: RenderSpec) -> None:
         _check_paths(spec, self.allowed_roots)
@@ -436,6 +461,7 @@ class SandboxRunner:
 
 __all__ = [
     "ALLOWED_PROFILES",
+    "MAX_ENCODE_THREADS",
     "PROFILE_HEIGHTS",
     "KeyMaterial",
     "RenderSpec",
@@ -447,5 +473,6 @@ __all__ = [
     "TranscodeTimeout",
     "build_hls_command",
     "build_poster_command",
+    "encode_threads",
     "tail",
 ]

@@ -8,12 +8,14 @@
 
 from __future__ import annotations
 
+import logging
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from zhyonlineedu.core.codes import (
@@ -26,7 +28,7 @@ from zhyonlineedu.core.codes import (
     VALIDATION_FAILED,
 )
 from zhyonlineedu.core.config import Config
-from zhyonlineedu.core.db.engine import Database, ensure_database
+from zhyonlineedu.core.db.engine import Database, ensure_database, is_lock_error
 from zhyonlineedu.core.db.models.account import (
     AccountSession,
     AccountUser,
@@ -53,6 +55,9 @@ from .tokens import (
 REFRESH_COOKIE = "zhy_rt"
 RT_TTL_SEC = 14 * 24 * 3600  # §7.1：RT 14 天（不随环境改变）
 MODE_CONFIG_KEY = "install.mode"
+LOGIN_DB_RETRY = 3  # 写会话撞 SQLite 写锁时的退避重试次数
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,14 +116,48 @@ class AuthService:
         if not name:
             raise AppError(AUTH_INVALID_CREDENTIALS)
         now = datetime.now(UTC)
+
+        # 第一段：短读会话只取认证所需字段，读完立即关闭。
+        # Argon2 校验约 0.5s；若与写操作共用同一段读事务，期间别的连接提交过数据，
+        # 事务升级为写时 SQLite 直接报 `database is locked`（busy_timeout 对升级
+        # 不生效，M2.16 压测实测：123 次登录里 3 次 500）。
+        with Session(self.db.engine) as session:
+            row = session.execute(
+                select(
+                    AccountUser.id,
+                    AccountUser.password_hash,
+                ).where(AccountUser.username == name, not_deleted(AccountUser))
+            ).one_or_none()
+        if row is None:
+            dummy_verify()
+            raise AppError(AUTH_INVALID_CREDENTIALS)
+        if not verify_password(row.password_hash, password):
+            raise AppError(AUTH_INVALID_CREDENTIALS)
+
+        # 第二段：写会话（插入 account_session + 更新 last_login_at）；读与写之间
+        # 仍可能被别的写者抢先提交，撞锁时退避重试而不是把 500 透给登录页。
+        for attempt in range(1, LOGIN_DB_RETRY + 1):
+            try:
+                return self._write_login_session(int(row.id), str(row.password_hash), now)
+            except OperationalError as exc:
+                if not is_lock_error(exc) or attempt == LOGIN_DB_RETRY:
+                    raise
+                logger.warning(
+                    "登录写会话等锁，重试 %s/%s（%s）", attempt, LOGIN_DB_RETRY, exc.orig
+                )
+                time.sleep(0.05 * attempt)
+        raise RuntimeError("登录写会话重试耗尽")  # pragma: no cover - 循环内必然 return/raise
+
+    def _write_login_session(self, user_id: int, password_hash: str, now: datetime) -> LoginResult:
+        """登录的写阶段：复查账号后签发会话（不含 Argon2，保持事务极短）。"""
         with Session(self.db.engine) as session:
             user = session.execute(
-                select(AccountUser).where(AccountUser.username == name, not_deleted(AccountUser))
+                select(AccountUser).where(AccountUser.id == user_id, not_deleted(AccountUser))
             ).scalar_one_or_none()
             if user is None:
-                dummy_verify()
-                raise AppError(AUTH_INVALID_CREDENTIALS)
-            if not verify_password(user.password_hash, password):
+                raise AppError(AUTH_TOKEN_REVOKED)
+            # 读认证字段与写会话之间账号可能已改密，按最新哈希复核一次
+            if user.password_hash != password_hash:
                 raise AppError(AUTH_INVALID_CREDENTIALS)
             self._raise_if_inactive(user)
 
@@ -211,6 +250,7 @@ class AuthService:
         if problem is not None:
             raise AppError(VALIDATION_FAILED, data={"errors": [problem]})
         now = datetime.now(UTC)
+        # 短读会话：取旧哈希后立即关闭，Argon2 校验不占用事务（同 login 的锁口径）
         with Session(self.db.engine) as session:
             user = session.execute(
                 select(AccountUser).where(AccountUser.id == user_id, not_deleted(AccountUser))
@@ -218,10 +258,39 @@ class AuthService:
             if user is None:
                 raise AppError(AUTH_TOKEN_REVOKED)
             self._raise_if_inactive(user)
-            if not verify_password(user.password_hash, old_password):
-                raise AppError(AUTH_INVALID_CREDENTIALS)
+            stored_hash = str(user.password_hash)
+        if not verify_password(stored_hash, old_password):
+            raise AppError(AUTH_INVALID_CREDENTIALS)
+        new_hash = hash_password(str(new_password))
 
-            user.password_hash = hash_password(str(new_password))
+        for attempt in range(1, LOGIN_DB_RETRY + 1):
+            try:
+                return self._write_password_change(user_id, stored_hash, new_hash, now)
+            except OperationalError as exc:
+                if not is_lock_error(exc) or attempt == LOGIN_DB_RETRY:
+                    raise
+                logger.warning(
+                    "改密写会话等锁，重试 %s/%s（%s）", attempt, LOGIN_DB_RETRY, exc.orig
+                )
+                time.sleep(0.05 * attempt)
+        raise RuntimeError("改密写会话重试耗尽")  # pragma: no cover - 循环内必然 return/raise
+
+    def _write_password_change(
+        self, user_id: int, stored_hash: str, new_hash: str, now: datetime
+    ) -> dict[str, object]:
+        """改密的写阶段：tv+1、吊销全部 RT、写安全日志（事务极短）。"""
+        with Session(self.db.engine) as session:
+            user = session.execute(
+                select(AccountUser).where(AccountUser.id == user_id, not_deleted(AccountUser))
+            ).scalar_one_or_none()
+            if user is None:
+                raise AppError(AUTH_TOKEN_REVOKED)
+            # 校验与写入之间账号可能已被并发改密，按最新哈希复核一次
+            if str(user.password_hash) != stored_hash:
+                raise AppError(AUTH_INVALID_CREDENTIALS)
+            self._raise_if_inactive(user)
+
+            user.password_hash = new_hash
             user.token_version = int(user.token_version) + 1
             user.updated_at = now
             revoked = self._revoke_user_sessions(

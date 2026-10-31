@@ -59,10 +59,12 @@ from zhyonlineedu.core.media.hls import (
     VARIANT_NAME,
     HlsInspection,
     HlsVerifyError,
+    parse_variant,
     verify_hls,
 )
 from zhyonlineedu.core.media.keys import (
     MediaKeyError,
+    decrypt_aes128_cbc,
     derive_aes_key,
     load_master_secret,
 )
@@ -85,6 +87,7 @@ SOURCE_NAME = "source.bin"
 STAGING_NAME = "staging"
 HLS_NAME = "hls"
 POSTER_NAME = "poster.jpg"
+PROBE_NAME = "codec-probe"
 KEY_DIR_NAME = "keys"
 KEY_URI_TEMPLATE = "/api/v1/media/key/{kid}"
 BANDWIDTH = {"360": 800_000, "720": 2_500_000, "1080": 5_000_000}
@@ -596,12 +599,26 @@ class TranscodeService:
             if poster.returncode != 0 or not (poster_dir / POSTER_NAME).is_file():
                 raise _TranscodeFailure(ENC_POSTER, poster.stderr_tail)
 
-            inspection = verify_hls(
-                staging,
-                profiles=snapshot.profiles,
-                expected_duration_sec=snapshot.duration_sec,
-                codec_prober=self._codec_prober,
+            probe_dir = self.asset_dir(lesson_id) / PROBE_NAME
+            shutil.rmtree(probe_dir, ignore_errors=True)
+            probe_paths = self._decrypted_probe_segments(
+                probe_dir, staging, snapshot.profiles, key.key_path
             )
+
+            def codec_prober(path: Path) -> str | None:
+                # 分片是 AES-128 密文，直接 ffprobe 会得到 unknown；用解密副本探测编码。
+                return self._codec_prober(probe_paths.get(path, path))
+
+            try:
+                inspection = verify_hls(
+                    staging,
+                    profiles=snapshot.profiles,
+                    expected_duration_sec=snapshot.duration_sec,
+                    codec_prober=codec_prober,
+                )
+            finally:
+                # 明文副本只用于探测，绝不能随 staging 发布出去。
+                shutil.rmtree(probe_dir, ignore_errors=True)
         except TranscodeTimeout as exc:
             raise _TranscodeFailure(ENC_TIMEOUT, str(exc)) from exc
         except SandboxError as exc:
@@ -613,6 +630,32 @@ class TranscodeService:
             _shred(key.info_path)
 
         return kid, inspection, sandbox
+
+    def _decrypted_probe_segments(
+        self, probe_dir: Path, staging: Path, profiles: Sequence[str], key_path: Path
+    ) -> dict[Path, Path]:
+        """为编码白名单准备明文首片：HLS 分片是密文，需先用任务注入的 key + IV 解密。"""
+        try:
+            key = key_path.read_bytes()
+        except OSError:
+            return {}
+        mapping: dict[Path, Path] = {}
+        for profile in profiles:
+            try:
+                variant = parse_variant(staging, profile, f"{profile}/{VARIANT_NAME}")
+            except HlsVerifyError:
+                continue
+            if variant.iv is None or not variant.segments:
+                continue
+            try:
+                plain = decrypt_aes128_cbc(variant.segments[0].read_bytes(), key, variant.iv)
+            except (OSError, ValueError):
+                continue
+            _ensure_private_dir(probe_dir)
+            target = probe_dir / f"{profile}.ts"
+            _write_private(target, plain)
+            mapping[variant.segments[0]] = target
+        return mapping
 
     def _publish(
         self,
@@ -648,6 +691,11 @@ class TranscodeService:
             asset.sandbox_profile = json.dumps(dict(sandbox), ensure_ascii=False)
             asset.error_code = None
             asset.updated_at = now
+            # 老数据的课时时长可能是人工填写的：发布成功时以探测得到的视频时长为准。
+            lesson = session.get(EduCourseLesson, snapshot.lesson_id)
+            if lesson is not None and int(asset.duration_sec or 0) > 0:
+                lesson.duration_sec = int(asset.duration_sec)
+                lesson.updated_at = now
             job.status = "succeeded"
             job.error_code = None
             job.sandbox = json.dumps(dict(sandbox), ensure_ascii=False)

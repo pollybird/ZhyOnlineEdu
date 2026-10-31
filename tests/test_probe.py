@@ -88,7 +88,7 @@ def test_probe_table_cleaned_up() -> None:
     run_probe(engine, "sqlite")
     with engine.connect() as conn:
         count = conn.execute(
-            text("SELECT COUNT(*) FROM sqlite_master WHERE name='zhy_probe_caps'")
+            text("SELECT COUNT(*) FROM sqlite_master WHERE name LIKE 'zhy_probe_caps%'")
         ).scalar()
     assert count == 0
     engine.dispose()

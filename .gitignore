@@ -25,6 +25,8 @@ zhy-ffmpeg-sbom.local.json
 
 # ── 运行时 ──
 /run/zhy/
+# 本地实测运行目录（数据库/密钥/存储/上传等，勿提交）
+/var/
 *.log
 tmp/
 # 开发/本地 SQLite 库（迁移产物，不入库）

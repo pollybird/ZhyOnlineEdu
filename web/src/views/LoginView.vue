@@ -69,9 +69,7 @@ async function submit(): Promise<void> {
       <el-button type="primary" :loading="busy" class="auth-submit" @click="submit">
         登录
       </el-button>
-      <p class="auth-hint">
-        AT 仅存内存，刷新页面由 HttpOnly Cookie 中的 RT 静默恢复（M1.6）。
-      </p>
+      <p class="auth-hint">登录状态会自动保持；如提示登录已过期，请重新登录。</p>
     </el-card>
   </div>
 </template>

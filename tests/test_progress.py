@@ -3,7 +3,8 @@
 验收口径：**没有 ticket 就拿不到 key**。
 本文件覆盖：
 - 票据：登录必需、encoded 才可签、未发布仅 course:edit（preview）、member 暂无会员 → 403；
-- playlist：master 档位过滤 + URI 改写、variant 的 key/分片改写、nonce 轮换后旧票失效；
+- playlist：master 档位过滤 + URI 改写、variant 的 key/分片改写、票据 URL 可复用、
+  旧 ksession 宽限期后失效；
 - key：缺参/无效签名/过期/串课/重放分别 40201/40203/40206，正常返回 16 字节并按 kid 派生；
 - 分片：路径白名单 + kid 归属 + Range/206 + 跨目录 404；
 - 进度：HTTP 202 + 只写 log（投影仍空）、30s 桶去重、越界校验、preview 不计统计；
@@ -292,6 +293,7 @@ def _ticket(client: Any, headers: dict[str, str], lesson_id: int) -> dict[str, A
 # ── 票据签发 ──────────────────────────────────────────────────────────────
 
 
+@pytest.mark.media
 def test_ticket_requires_login(tmp_path: Path) -> None:
     client = _client(_seed(tmp_path))
     response = client.post("/api/v1/media/tickets", json={"lesson_id": L_PUBLIC})
@@ -299,6 +301,7 @@ def test_ticket_requires_login(tmp_path: Path) -> None:
     assert response.get_json()["code"] == "AUTH_TOKEN_EXPIRED"
 
 
+@pytest.mark.media
 def test_ticket_only_for_encoded_asset(tmp_path: Path) -> None:
     client = _client(_seed(tmp_path))
     headers = _login(client, "root")
@@ -312,6 +315,7 @@ def test_ticket_only_for_encoded_asset(tmp_path: Path) -> None:
     assert body["data"]["retry_after"] == 30
 
 
+@pytest.mark.media
 def test_ticket_draft_requires_preview_permission(tmp_path: Path) -> None:
     client = _client(_seed(tmp_path))
     student = _login(client, "student")
@@ -327,6 +331,7 @@ def test_ticket_draft_requires_preview_permission(tmp_path: Path) -> None:
     assert data["kid"] == KID3
 
 
+@pytest.mark.media
 def test_ticket_member_needs_level(tmp_path: Path) -> None:
     client = _client(_seed(tmp_path))
     headers = _login(client, "student")
@@ -337,6 +342,7 @@ def test_ticket_member_needs_level(tmp_path: Path) -> None:
     assert body["data"]["access_type"] == "member"
 
 
+@pytest.mark.media
 def test_ticket_unknown_lesson_is_404(tmp_path: Path) -> None:
     client = _client(_seed(tmp_path))
     response = client.post(
@@ -346,6 +352,7 @@ def test_ticket_unknown_lesson_is_404(tmp_path: Path) -> None:
     assert response.get_json()["code"] == "NOT_FOUND"
 
 
+@pytest.mark.media
 def test_ticket_payload_validated(tmp_path: Path) -> None:
     client = _client(_seed(tmp_path))
     headers = _login(client, "student")
@@ -358,6 +365,7 @@ def test_ticket_payload_validated(tmp_path: Path) -> None:
 # ── 验收口径：无 ticket 拿不到 key ────────────────────────────────────────
 
 
+@pytest.mark.media
 def test_key_requires_ticket(tmp_path: Path) -> None:
     client = _client(_seed(tmp_path))
     bare = client.get(f"/api/v1/media/key/{KID1}")
@@ -376,6 +384,7 @@ def test_key_requires_ticket(tmp_path: Path) -> None:
     assert forged.get_json()["data"]["reason"] == "session_missing"
 
 
+@pytest.mark.media
 def test_key_rejects_bad_signature(tmp_path: Path) -> None:
     client = _client(_seed(tmp_path))
     ticket = _ticket(client, _login(client, "student"), L_PUBLIC)
@@ -386,6 +395,7 @@ def test_key_rejects_bad_signature(tmp_path: Path) -> None:
     assert response.get_json()["code"] == int(Code.MEDIA_TICKET_MISMATCH)
 
 
+@pytest.mark.media
 def test_key_rejects_expired_url(tmp_path: Path) -> None:
     config = _seed(tmp_path)
     client = _client(config)
@@ -404,6 +414,7 @@ def test_key_rejects_expired_url(tmp_path: Path) -> None:
     assert body["data"]["reason"] == "url_expired"
 
 
+@pytest.mark.media
 def test_key_rejects_other_kid(tmp_path: Path) -> None:
     client = _client(_seed(tmp_path))
     ticket = _ticket(client, _login(client, "student"), L_PUBLIC)
@@ -416,6 +427,7 @@ def test_key_rejects_other_kid(tmp_path: Path) -> None:
     assert body["data"]["reason"] == "kid_not_in_session"
 
 
+@pytest.mark.media
 def test_key_nonce_single_use(tmp_path: Path) -> None:
     config = _seed(tmp_path, ZHY_MEDIA_NONCE_REUSE_WINDOW_SEC="0")
     client = _client(config)
@@ -449,6 +461,7 @@ def test_key_nonce_single_use(tmp_path: Path) -> None:
 # ── playlist 重写 ─────────────────────────────────────────────────────────
 
 
+@pytest.mark.media
 def test_master_and_variant_are_rewritten(tmp_path: Path) -> None:
     config = _seed(tmp_path)
     client = _client(config)
@@ -476,6 +489,7 @@ def test_master_and_variant_are_rewritten(tmp_path: Path) -> None:
     ]
 
 
+@pytest.mark.media
 def test_master_filters_profiles(tmp_path: Path) -> None:
     config = _seed(tmp_path)
     engine = _engine(config)
@@ -505,19 +519,45 @@ def test_master_filters_profiles(tmp_path: Path) -> None:
     assert denied.get_json()["data"]["reason"] == "profile_not_allowed"
 
 
-def test_old_playlist_ticket_is_stale(tmp_path: Path) -> None:
-    client = _client(_seed(tmp_path))
-    ticket = _ticket(client, _login(client, "student"), L_PUBLIC)
-    first = client.get(str(ticket["playlist_url"]))
-    assert first.status_code == 200
-    # 每次下发轮换 nonce：旧 URL 的 n 已过期（40201 playlist_stale）
+@pytest.mark.media
+def test_playlist_url_reusable_and_old_ticket_expires(tmp_path: Path) -> None:
+    """同一票据的 playlist URL 在有效期内可重复拉取（ABR 切档依赖）。
+
+    nonce 不随拉取轮换，因此旧 URL 在有效期内一直可用；旧票失效改由
+    「同用户/课时签发新票 → 旧 ksession superseded」保证，宽限期后 40201。
+    """
+    config = _seed(tmp_path)
+    client = _client(config)
+    headers = _login(client, "student")
+    ticket = _ticket(client, headers, L_PUBLIC)
+    assert client.get(str(ticket["playlist_url"])).status_code == 200
+    assert client.get(str(ticket["playlist_url"])).status_code == 200
+
+    _ticket(client, headers, L_PUBLIC)  # 新票把旧 ksession 标记 superseded
+    # 宽限期内旧 URL 仍可用（换票与 ABR 切档存在竞态）
+    assert client.get(str(ticket["playlist_url"])).status_code == 200
+
+    engine = _engine(config)
+    try:
+        with Session(engine) as session:
+            session.execute(
+                update(MediaKeySession).values(
+                    superseded_at=utcnow() - timedelta(seconds=600),
+                    updated_at=utcnow() - timedelta(seconds=600),
+                )
+            )
+            session.commit()
+    finally:
+        engine.dispose()
+
     stale = client.get(str(ticket["playlist_url"]))
     assert stale.status_code == 401
     body = stale.get_json()
     assert body["code"] == int(Code.MEDIA_TICKET_EXPIRED)
-    assert body["data"]["reason"] == "playlist_stale"
+    assert body["data"]["reason"] == "session_superseded"
 
 
+@pytest.mark.media
 def test_playlist_rejects_external_reference(tmp_path: Path) -> None:
     config = _seed(tmp_path)
     root = Path(config.get_str("storage.local_dir")) / "media" / str(L_PUBLIC) / "hls"
@@ -535,6 +575,7 @@ def test_playlist_rejects_external_reference(tmp_path: Path) -> None:
 # ── 分片 ──────────────────────────────────────────────────────────────────
 
 
+@pytest.mark.media
 def test_segment_served_with_range(tmp_path: Path) -> None:
     client = _client(_seed(tmp_path))
     response = client.get(f"/api/v1/media/seg/{KID1}/360/seg_000.ts")
@@ -547,6 +588,7 @@ def test_segment_served_with_range(tmp_path: Path) -> None:
     assert partial.get_data() == b"ts-360"
 
 
+@pytest.mark.media
 def test_segment_path_whitelist(tmp_path: Path) -> None:
     client = _client(_seed(tmp_path))
     for path in (
@@ -569,6 +611,7 @@ def _post_progress(client: Any, headers: dict[str, str], **body: Any) -> Any:
     return client.post("/api/v1/learn/progress", json=payload, headers=headers)
 
 
+@pytest.mark.hbt
 def test_progress_returns_202_and_only_logs(tmp_path: Path) -> None:
     config = _seed(tmp_path)
     client = _client(config)
@@ -608,6 +651,7 @@ def test_progress_returns_202_and_only_logs(tmp_path: Path) -> None:
         engine.dispose()
 
 
+@pytest.mark.hbt
 def test_progress_bucket_dedup(tmp_path: Path) -> None:
     config = _seed(tmp_path)
     client = _client(config)
@@ -630,6 +674,7 @@ def test_progress_bucket_dedup(tmp_path: Path) -> None:
         engine.dispose()
 
 
+@pytest.mark.hbt
 def test_progress_validation_bounds(tmp_path: Path) -> None:
     client = _client(_seed(tmp_path))
     headers = _login(client, "student")
@@ -646,6 +691,7 @@ def test_progress_validation_bounds(tmp_path: Path) -> None:
         assert response.get_json()["code"] == "VALIDATION_FAILED"
 
 
+@pytest.mark.hbt
 def test_progress_rejects_draft_without_preview(tmp_path: Path) -> None:
     client = _client(_seed(tmp_path))
     response = _post_progress(client, _login(client, "student"), lesson_id=L_DRAFT)
@@ -653,6 +699,7 @@ def test_progress_rejects_draft_without_preview(tmp_path: Path) -> None:
     assert response.get_json()["code"] == int(Code.MEDIA_TICKET_MISMATCH)
 
 
+@pytest.mark.hbt
 def test_progress_preview_not_counted(tmp_path: Path) -> None:
     config = _seed(tmp_path)
     client = _client(config)
@@ -682,6 +729,7 @@ def test_progress_preview_not_counted(tmp_path: Path) -> None:
         engine.dispose()
 
 
+@pytest.mark.hbt
 def test_progress_survives_ring_full(tmp_path: Path) -> None:
     config = _seed(tmp_path)
     app = create_app(config=config, probe=StaticProbe(READY))
@@ -747,6 +795,7 @@ def _course_row(config: Config) -> LearnCourseProgress | None:
         engine.dispose()
 
 
+@pytest.mark.hbt
 def test_flush_projects_absolute_values(tmp_path: Path) -> None:
     config = _seed(tmp_path)
     _record(config, position=12, played=10)
@@ -772,6 +821,7 @@ def test_flush_projects_absolute_values(tmp_path: Path) -> None:
     assert (course.resume_lesson_id, course.resume_position) == (L_PUBLIC, 45)
 
 
+@pytest.mark.hbt
 def test_flush_greatest_never_regresses(tmp_path: Path) -> None:
     config = _seed(tmp_path)
     _record(config, position=12, played=10)
@@ -798,6 +848,7 @@ def test_flush_greatest_never_regresses(tmp_path: Path) -> None:
     assert row.version == 2
 
 
+@pytest.mark.hbt
 def test_flush_marks_completed(tmp_path: Path) -> None:
     config = _seed(tmp_path)
     _record(config, position=95, played=DURATION)
@@ -817,6 +868,7 @@ def test_flush_marks_completed(tmp_path: Path) -> None:
     assert float(course.percent) == 100.0
 
 
+@pytest.mark.hbt
 def test_flush_lease_is_single_writer(tmp_path: Path) -> None:
     config = _seed(tmp_path)
     _record(config, position=12, played=10)
@@ -852,6 +904,7 @@ def test_flush_lease_is_single_writer(tmp_path: Path) -> None:
     assert _progress_row(config) is not None
 
 
+@pytest.mark.hbt
 def test_replay_unflushed_uses_db_log_when_ring_lost(tmp_path: Path) -> None:
     config = _seed(tmp_path)
     _record(config, position=12, played=10)
@@ -866,6 +919,7 @@ def test_replay_unflushed_uses_db_log_when_ring_lost(tmp_path: Path) -> None:
     assert row is not None and row.watch_seconds == 20
 
 
+@pytest.mark.hbt
 def test_worker_once_replays_on_start(tmp_path: Path) -> None:
     config = _seed(tmp_path)
     _record(config, position=12, played=10)
@@ -873,6 +927,7 @@ def test_worker_once_replays_on_start(tmp_path: Path) -> None:
     assert _progress_row(config) is not None
 
 
+@pytest.mark.hbt
 def test_greatest_sql_per_dialect() -> None:
     assert greatest_sql(Dialect.SQLITE, "watch_seconds", "watch") == "MAX(watch_seconds, :watch)"
     assert (
@@ -901,6 +956,7 @@ def _cmd(gw_seq: int, **overrides: Any) -> ProgressCmd:
     return ProgressCmd(**values)
 
 
+@pytest.mark.hbt
 def test_local_bus_publish_consume_ack(tmp_path: Path) -> None:
     bus = LocalBus(tmp_path / "ring")
     bus.publish(_cmd(2))
@@ -912,6 +968,7 @@ def test_local_bus_publish_consume_ack(tmp_path: Path) -> None:
     assert all(path.stat().st_size == 0 for path in (tmp_path / "ring").glob("gw-*.jsonl"))
 
 
+@pytest.mark.hbt
 def test_local_bus_ring_full(tmp_path: Path) -> None:
     bus = LocalBus(tmp_path / "ring")
     bus.publish(_cmd(1))
@@ -920,6 +977,7 @@ def test_local_bus_ring_full(tmp_path: Path) -> None:
         bus.publish(_cmd(2))
 
 
+@pytest.mark.hbt
 def test_redis_bus_is_explicitly_unavailable() -> None:
     bus = get_bus("redis-stream", url="redis://localhost:6379/0")
     assert isinstance(bus, RedisBus)
@@ -927,6 +985,7 @@ def test_redis_bus_is_explicitly_unavailable() -> None:
         bus.publish(_cmd(1))
 
 
+@pytest.mark.hbt
 def test_progress_log_uk_prefers_latest_seq(tmp_path: Path) -> None:
     """同一 (user, lesson) 的 seq_no 连续递增，审计可据此发现缺口。"""
     config = _seed(tmp_path)
@@ -945,6 +1004,7 @@ def test_progress_log_uk_prefers_latest_seq(tmp_path: Path) -> None:
         engine.dispose()
 
 
+@pytest.mark.media
 def test_key_session_bound_to_user_and_lesson(tmp_path: Path) -> None:
     config = _seed(tmp_path)
     client = _client(config)
@@ -963,8 +1023,104 @@ def test_key_session_bound_to_user_and_lesson(tmp_path: Path) -> None:
         engine.dispose()
 
 
+@pytest.mark.media
 def test_key_derivation_is_kid_bound(tmp_path: Path) -> None:
     config = _seed(tmp_path)
     secret = load_master_secret(config, Path(config.get_str("storage.local_dir")))
     assert derive_aes_key(secret, KID1) != derive_aes_key(secret, KID4)
     assert len(derive_aes_key(secret, KID1)) == 16
+
+
+# ── HBT-001~005 验收（§16.4 压测窗口 M2.16 固化）────────────────────────
+# HBT-002（崩溃重放）见 test_replay_unflushed_uses_db_log_when_ring_lost；
+# HBT-003（单写者租约）见 test_flush_lease_is_single_writer。
+
+
+@pytest.mark.hbt
+def test_hbt001_two_gateways_same_user_converge_to_max(tmp_path: Path) -> None:
+    """HBT-001：双实例/双 worker 并发上报同一用户同一课时，最终取最大值。"""
+    config = _seed(tmp_path)
+    student = _user_id(config, "student")
+
+    def report(position: int) -> None:
+        ProgressGateway(config).record(
+            user_id=student,
+            lesson_id=L_PUBLIC,
+            body={
+                "lesson_id": L_PUBLIC,
+                "position_sec": position,
+                "played_seconds": 10,
+                "speed": 1.0,
+                "client_ts_ms": 0,
+            },
+            can_preview=False,
+        )
+
+    report(30)
+    report(130)
+    assert _progress_row(config) is None
+
+    assert ProgressFlush(config).flush_once() == 2
+    row = _progress_row(config)
+    assert row is not None
+    assert row.watch_seconds == 20
+    assert row.last_position == 130
+
+    engine = _engine(config)
+    try:
+        with Session(engine) as session:
+            seqs = [
+                int(value)
+                for value in session.execute(
+                    select(LearnProgressLog.seq_no).order_by(LearnProgressLog.id)
+                ).scalars()
+            ]
+            gw = [
+                int(value)
+                for value in session.execute(
+                    select(LearnProgressLog.gw_seq).order_by(LearnProgressLog.gw_seq)
+                ).scalars()
+            ]
+        assert seqs == [1, 2]
+        assert gw == sorted(gw) and gw[-1] - gw[0] + 1 == len(gw)
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.hbt
+def test_hbt004_replayed_flush_is_idempotent(tmp_path: Path) -> None:
+    """HBT-004：同一批 log 被重放（模拟并发 flush / 版本冲突），不翻倍、不报错、最终一致。"""
+    config = _seed(tmp_path)
+    _record(config, position=12, played=10)
+    assert ProgressFlush(config).flush_once() == 1
+    first = _progress_row(config)
+    assert first is not None and first.watch_seconds == 10
+
+    engine = _engine(config)
+    try:
+        with Session(engine) as session:
+            session.execute(update(LearnProgressLog).values(flushed_at=None))
+            session.commit()
+    finally:
+        engine.dispose()
+
+    assert ProgressFlush(config).flush_once() == 1
+    row = _progress_row(config)
+    assert row is not None
+    assert row.watch_seconds == 10  # 绝对值重算：重放不双计
+    assert row.last_position == 12
+    assert row.version == 2  # 覆盖写入一次，无回退
+
+
+@pytest.mark.hbt
+def test_hbt005_out_of_order_positions_keep_max(tmp_path: Path) -> None:
+    """HBT-005：乱序到达（600 先于 300），位置与累计时长仍取最大/求和。"""
+    config = _seed(tmp_path)
+    _record(config, position=120, played=10)
+    _record(config, position=30, played=10)
+    assert ProgressFlush(config).flush_once() == 2
+
+    row = _progress_row(config)
+    assert row is not None
+    assert row.last_position == 120
+    assert row.watch_seconds == 20

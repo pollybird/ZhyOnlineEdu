@@ -15,12 +15,13 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import time
 from collections.abc import Mapping
 from datetime import datetime
 from typing import Any, NoReturn
 
 from sqlalchemy import func, select, update
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from zhyonlineedu.core.codes import (
@@ -30,7 +31,7 @@ from zhyonlineedu.core.codes import (
     Code,
 )
 from zhyonlineedu.core.config import Config
-from zhyonlineedu.core.db.engine import Database, ensure_database
+from zhyonlineedu.core.db.engine import Database, ensure_database, is_lock_error
 from zhyonlineedu.core.db.models.catalog import EduCourse, EduCourseLesson
 from zhyonlineedu.core.db.models.learn import (
     DEFAULT_SHARD,
@@ -267,6 +268,18 @@ class ProgressGateway:
                 except IntegrityError:
                     session.rollback()
                     logger.info("progress gw_seq 争用，重试 %s/%s", attempt, GW_SEQ_RETRY)
+                except OperationalError as exc:
+                    session.rollback()
+                    if not is_lock_error(exc) or attempt == GW_SEQ_RETRY:
+                        raise
+                    # SQLite 写锁竞争（M2.16 压测实测）：退避后重试，避免把 500 透给播放器
+                    logger.warning(
+                        "progress 写入等锁超时，重试 %s/%s（%s）",
+                        attempt,
+                        GW_SEQ_RETRY,
+                        exc.orig,
+                    )
+                    time.sleep(0.1 * attempt)
         logger.error("progress gw_seq 连续冲突，放弃上报（user=%s lesson=%s）", user_id, lesson_id)
         raise AppError(Code.RATE_LIMITED, data={"retry_after": 1})
 

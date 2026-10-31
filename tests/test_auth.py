@@ -12,12 +12,14 @@ from __future__ import annotations
 
 import time
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import pytest
 from flask import Blueprint
 from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 from zhyonlineedu.app import create_app
 from zhyonlineedu.core.auth.decorators import require_permission
@@ -460,3 +462,50 @@ def test_auth_service_rejects_missing_refresh(tmp_path: Path) -> None:
     with pytest.raises(AppError) as excinfo:
         service.refresh(None)
     assert excinfo.value.code == AUTH_TOKEN_EXPIRED
+
+
+# ── SQLite 写锁（M2.16 压测实测：读事务跨 Argon2 → database is locked）──────
+
+
+def _lock_error() -> OperationalError:
+    return OperationalError("UPDATE account_user", {}, Exception("database is locked"))
+
+
+def test_login_retries_write_session_on_lock(tmp_path: Path, monkeypatch: Any) -> None:
+    """Argon2 校验已在事务外，写会话撞写锁只退避重试，不把 500 透给登录页。"""
+    config = _seed(tmp_path, (("teacher", "teacher", "active"),))
+    service = AuthService(config)
+    calls: list[int] = []
+    real = service._write_login_session
+
+    def flaky(user_id: int, password_hash: str, now: datetime) -> Any:
+        calls.append(user_id)
+        if len(calls) == 1:
+            raise _lock_error()
+        return real(user_id, password_hash, now)
+
+    monkeypatch.setattr(service, "_write_login_session", flaky)
+    result = service.login("teacher", PASSWORD)
+    assert len(calls) == 2
+    assert result.user.username == "teacher"
+    # 重试未重复落库：一次成功登录只应留下一个 account_session
+    with Session(service.db.engine) as session:
+        rows = session.execute(
+            select(AccountSession).where(AccountSession.user_id == result.user.id)
+        ).scalars()
+        assert len(list(rows)) == 1
+
+
+def test_login_write_session_rejects_stale_password_hash(tmp_path: Path) -> None:
+    """读认证字段与写会话之间被并发改密时，按最新哈希复核并拒绝签发。"""
+    config = _seed(tmp_path, (("teacher", "teacher", "active"),))
+    service = AuthService(config)
+    with Session(service.db.engine) as session:
+        user_id = int(
+            session.execute(
+                select(AccountUser.id).where(AccountUser.username == "teacher")
+            ).scalar_one()
+        )
+    with pytest.raises(AppError) as excinfo:
+        service._write_login_session(user_id, "stale-hash", datetime.now(UTC))
+    assert excinfo.value.code == AUTH_INVALID_CREDENTIALS

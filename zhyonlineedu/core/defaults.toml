@@ -21,8 +21,10 @@ at_ttl_sec = 1800
 
 [progress]
 ring_dir = "/run/zhy/progress"
-flush_batch = 200
-flush_interval_sec = 15
+# 100 QPS 上报 ≈ 100 行 log/s；200/15s 只有 13 行/s，压测会积压（M2.16 实测）。
+# 1000/5s = 200 行/s，按 2 倍余量覆盖峰值，投影仍是单写者 + 绝对值重算。
+flush_batch = 1000
+flush_interval_sec = 5
 lease_ttl_sec = 30
 bus = "local"
 recovery_max_gap = 10000

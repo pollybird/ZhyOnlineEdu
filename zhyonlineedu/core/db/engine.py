@@ -39,6 +39,18 @@ def _sqlite_connect_args() -> dict[str, Any]:
     return {"check_same_thread": False, "timeout": 15}
 
 
+def is_lock_error(exc: BaseException) -> bool:
+    """是否 SQLite 写锁竞争（`database is locked` / `database is busy`）。
+
+    M2.16 压测实测：先读后写的事务升级为写事务时，若期间别的连接提交过数据，
+    SQLite 直接返回 `SQLITE_BUSY_SNAPSHOT`，`busy_timeout` 对它**不生效**，
+    SQLAlchemy 统一抛 `OperationalError`。调用方据此退避重试或拆短事务。
+    """
+    orig = getattr(exc, "orig", None)
+    detail = str(orig if orig is not None else exc).lower()
+    return "locked" in detail or "busy" in detail
+
+
 def _install_connect_events(engine: Engine, flavor: Flavor) -> None:
     if _is_sqlite(flavor):
         memory = str(engine.url) in _MEMORY_URLS

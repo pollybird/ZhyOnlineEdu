@@ -473,10 +473,85 @@ export interface InstallTokenOut {
   expires_in: number;
 }
 
+export interface LearnChapterOut {
+  chapter_id: number;
+  title: string;
+  lessons: LearnLessonOut[];
+}
+
+export interface LearnCourseDetailOut {
+  course: LearnCourseOut;
+  chapters: LearnChapterOut[];
+  metric_version: string;
+  freshness_seconds: number;
+  generated_at: string;
+}
+
+export interface LearnCourseListOut {
+  items: LearnCourseOut[];
+  total: number;
+  page: number;
+  page_size: number;
+  metric_version: string;
+  freshness_seconds: number;
+  generated_at: string;
+}
+
+export interface LearnCourseOut {
+  course_id: number;
+  title: string;
+  summary: string | null;
+  cover_url: string | null;
+  subject_id: number;
+  subject_name: string | null;
+  /** public|member|class */
+  access_type: string;
+  /** internal|external|both */
+  mode: string;
+  total_lessons: number;
+  total_duration_sec: number;
+  /** 首个可播课时；空课程为 null */
+  first_lesson_id: number | null;
+  /** UI 提示，最终裁决在取票接口 */
+  access_ok: boolean;
+  progress: LearnCourseProgressOut | null;
+}
+
+export interface LearnCourseProgressOut {
+  /** 本人该课程累计观看秒数（已剔除预览） */
+  watch_seconds: number;
+  /** 完成率 = 已完成课时 / 有效课时总数 */
+  percent: number;
+  completed: boolean;
+  completed_lessons: number;
+  resume_lesson_id: number | null;
+  resume_position: number;
+  last_watch_at: string | null;
+}
+
+export interface LearnLessonOut {
+  lesson_id: number;
+  title: string;
+  kind: string;
+  duration_sec: number;
+  is_free: boolean;
+  /** encoded 才可播放；None 表示未挂载 */
+  asset_status: string | null;
+  progress: LearnLessonProgressOut | null;
+}
+
+export interface LearnLessonProgressOut {
+  watch_seconds: number;
+  percent: number;
+  completed: boolean;
+  /** 续播位置（秒） */
+  last_position: number;
+  last_watch_at: string | null;
+}
+
 export interface LessonCreateIn {
   title: string;
   kind?: "video" | "text" | "live";
-  duration_sec?: number;
   is_free?: boolean;
 }
 
@@ -499,7 +574,6 @@ export interface LessonUpdateIn {
   version: number;
   title?: string | null;
   kind?: "video" | "text" | "live" | null;
-  duration_sec?: number | null;
   is_free?: boolean | null;
 }
 

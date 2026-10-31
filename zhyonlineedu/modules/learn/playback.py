@@ -5,7 +5,8 @@
 - 用户身份绑定在 `media_keysession`：playlist 的 `#EXT-X-KEY` URI 携带
   `ks`（会话）+ `n`（nonce）+ `exp`（失效 Unix 秒）+ `sig`（HMAC），key 端点逐项校验；
 - 三层 TTL：keysession（`media.ttl_ts`）> playlist（`ttl_playlist`）> key（`ttl_key`）；
-  playlist 每次拉取轮换 nonce，旧 playlist 里的 key URI 随即失效；
+  playlist 有效期内**不轮换 nonce**：master 下发的各档位 URI 必须可复用，否则
+  hls.js/原生 HLS 的 ABR 切换（直接使用 master 里的 URI）必然 40201 `playlist_stale`；
 - nonce 单次使用，带 `media.nonce_reuse_window_sec` 复用窗口（容忍播放器在窗口内
   重复请求同一 key）；窗口外即 40206；
 - 档位授权不进入签名，而在服务端按 `media_keysession.profiles` 校验（改策略无需换签）；
@@ -361,20 +362,31 @@ class PlaybackService:
         self._ensure_access(row)
 
         state = get_mode_context(self.config, db=self.db).snapshot()
-        _ttl_playlist, ttl_key = self._ttls(state)
+        ttl_playlist, ttl_key = self._ttls(state)
         root = self.hls_dir(int(row.lesson_id))
-        new_nonce, new_exp = self._rotate(row, moment)
-        ctx = self._ctx(str(row.kid), ks, new_nonce, new_exp)
+        # nonce 固定为票据签发时的值：一次 master 拉取会同时下发多个档位 URI，
+        # 播放器 ABR 切换会直接复用这些 URI；若每次请求轮换 nonce，切换必然 40201。
+        nonce = str(row.nonce)
+        playlist_exp = int(
+            min(moment + timedelta(seconds=ttl_playlist), row.expires_at).timestamp()
+        )
+        ctx = self._ctx(str(row.kid), ks, nonce, playlist_exp)
         try:
             if profile is None:
                 text = (root / MASTER_NAME).read_text(encoding="utf-8")
                 return rewrite_master(text, root, ctx=ctx, allowed=allowed)
+            # key 过期时间固定为「票据签发时刻 + key TTL」：同一 ksession 下各档位、
+            # 各次拉取得到的 key URI 字节一致，hls.js 才能按 URI 缓存密钥，
+            # ABR 切档不会因 exp 变化触发 40206；到期由播放器换票续签。
+            key_exp = int(
+                min(row.issued_at + timedelta(seconds=ttl_key), row.expires_at).timestamp()
+            )
             key_url = f"{ctx.base}{KEY_PREFIX}/{row.kid}?" + self._query(
                 "key",
                 ks,
                 str(row.kid),
-                new_nonce,
-                int((moment + timedelta(seconds=ttl_key)).timestamp()),
+                nonce,
+                key_exp,
             )
             text = (root / profile / "index.m3u8").read_text(encoding="utf-8")
             return rewrite_variant(text, root, profile=profile, ctx=ctx, key_url=key_url)
@@ -482,25 +494,6 @@ class PlaybackService:
                 Code.MEDIA_ACCESS_REVOKED,
                 data={"lesson_id": int(row.lesson_id), "reason": "policy_changed"},
             )
-
-    def _rotate(self, row: MediaKeySession, moment: datetime) -> tuple[str, int]:
-        nonce = secrets.token_hex(NONCE_BYTES)
-        state = get_mode_context(self.config, db=self.db).snapshot()
-        ttl = self._ttls(state)[0]
-        expires_at = int((moment + timedelta(seconds=ttl)).timestamp())
-        with Session(self.db.engine) as session:
-            session.execute(
-                update(MediaKeySession)
-                .where(MediaKeySession.ksession_id == row.ksession_id)
-                .values(
-                    nonce=nonce,
-                    nonce_used_at=None,
-                    nonce_expires_at=moment + timedelta(seconds=ttl),
-                    updated_at=moment,
-                )
-            )
-            session.commit()
-        return nonce, expires_at
 
     def _consume_nonce(self, row: MediaKeySession, moment: datetime) -> None:
         """nonce 单次消费：窗口内允许播放器重复拉取，窗口外一律 40206。"""

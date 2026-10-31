@@ -83,15 +83,22 @@ class ProgressFlush:
     # ── 主入口 ────────────────────────────────────────────────────────────
 
     def flush_once(self, *, now: datetime | None = None, batch: int | None = None) -> int:
-        """返回本次落库的 log 行数；0 表示无新数据或未抢到租约。"""
+        """返回本次落库的 log 行数；0 表示无新数据或未抢到租约。
+
+        按 (user, lesson) 分组、每组一个短事务提交（M2.16 压测实测）：
+        1000 行一次性提交 + 逐用户重算投影会让 SQLite 写锁持有超过 5s，
+        网关写入方等锁超时后 HTTP 500。按用户拆事务后，单次写锁只持有毫秒级，
+        同一次 flush 内同一用户的多行也只重算一次投影。投影仍是绝对值重算，
+        `GREATEST` 不回退与重放安全的语义不变。
+        """
         moment = now or utcnow()
         size = batch if batch is not None else self.config.get_int("progress.flush_batch")
+        if size <= 0:
+            return 0
         if not self._acquire_lease(moment):
             logger.debug("progress flush 未获得单写者租约，跳过本轮")
             return 0
 
-        processed = 0
-        max_gw_seq = 0
         with Session(self.db.engine) as session:
             rows = list(
                 session.execute(
@@ -108,29 +115,42 @@ class ProgressFlush:
                 session.commit()
                 return 0
 
-            touched: set[tuple[int, int, int]] = set()
-            touched_courses: set[tuple[int, int]] = set()
-            for row in rows:
-                max_gw_seq = max(max_gw_seq, int(row.gw_seq))
-                if row.source != "preview":
-                    touched.add((int(row.user_id), int(row.lesson_id), int(row.course_id)))
-                    touched_courses.add((int(row.user_id), int(row.course_id)))
-                row.flushed_at = moment
-            session.flush()
+        preview_ids: list[int] = []
+        groups: dict[tuple[int, int, int], list[int]] = {}
+        max_gw_seq = 0
+        for row in rows:
+            max_gw_seq = max(max_gw_seq, int(row.gw_seq))
+            if row.source == "preview":
+                preview_ids.append(int(row.id))
+            else:
+                key = (int(row.user_id), int(row.lesson_id), int(row.course_id))
+                groups.setdefault(key, []).append(int(row.id))
 
-            for user_id, lesson_id, course_id in touched:
+        if preview_ids:
+            with Session(self.db.engine) as session:
+                self._mark_flushed(session, preview_ids, moment)
+                self._extend_lease(session, moment)
+                session.commit()
+
+        for (user_id, lesson_id, course_id), ids in groups.items():
+            with Session(self.db.engine) as session:
+                self._mark_flushed(session, ids, moment)
                 self._project(session, user_id, lesson_id, course_id, moment)
-            for user_id, course_id in touched_courses:
                 self._project_course(session, user_id, course_id, moment)
-            self._extend_lease(session, moment)
-            processed = len(rows)
-            session.commit()
+                self._extend_lease(session, moment)
+                session.commit()
 
         try:
             self._bus.ack(max_gw_seq)
         except (OSError, RuntimeError):
             logger.exception("progress bus ack 失败；log 已落库，下一轮会再消费")
-        return processed
+        return len(rows)
+
+    @staticmethod
+    def _mark_flushed(session: Session, ids: list[int], moment: datetime) -> None:
+        session.execute(
+            update(LearnProgressLog).where(LearnProgressLog.id.in_(ids)).values(flushed_at=moment)
+        )
 
     # ── 投影 ──────────────────────────────────────────────────────────────
 

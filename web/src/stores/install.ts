@@ -57,6 +57,12 @@ export const useInstallStore = defineStore('install', () => {
     return result
   }
 
+  /** 会话过期/主动重校验：清本地会话，向导回到「校验令牌」。 */
+  function resetSession(): void {
+    clearInstallSession()
+    session.value = ''
+  }
+
   async function testDb(): Promise<DbTestOut> {
     return installApi.testDb()
   }
@@ -101,6 +107,7 @@ export const useInstallStore = defineStore('install', () => {
     activeIndex,
     loadState,
     exchangeToken,
+    resetSession,
     testDb,
     setupDb,
     createAdmin,

@@ -85,7 +85,7 @@ ALL_TABLES = (
     | USERS_TABLES
     | COMMERCE_TABLES
 )
-HEAD_REV = "0012_learning_profile"
+HEAD_REV = "0013_lesson_duration"
 DSN_ENV = {"postgresql": "ZHY_TEST_PG_DSN", "mysql": "ZHY_TEST_MYSQL_DSN"}
 
 

@@ -43,6 +43,7 @@ from zhyonlineedu.modules.assess.service import AssessService
 from zhyonlineedu.modules.catalog.service import CatalogService
 from zhyonlineedu.modules.commerce.service import CommerceService
 from zhyonlineedu.modules.config.service import ModeService
+from zhyonlineedu.modules.learn.catalog import StudentCatalog
 from zhyonlineedu.modules.learn.playback import PlaybackService
 from zhyonlineedu.modules.learn.profile import ProfileService
 from zhyonlineedu.modules.media.transcode_service import TranscodeService
@@ -226,6 +227,7 @@ def create_app(config: Config | None = None, probe: CapabilityProbe | None = Non
         app.extensions["zhy_playback"] = PlaybackService(cfg)
         app.extensions["zhy_progress"] = ProgressGateway(cfg)
         app.extensions["zhy_profile"] = ProfileService(cfg)
+        app.extensions["zhy_student_catalog"] = StudentCatalog(cfg)
         app.extensions["zhy_quiz"] = AssessService(cfg)
         app.extensions["zhy_users"] = UsersService(cfg)
         app.extensions["zhy_mode_service"] = ModeService(cfg)
