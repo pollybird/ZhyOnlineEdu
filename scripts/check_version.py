@@ -25,11 +25,14 @@ PYPROJECT = ROOT / "pyproject.toml"
 PACKAGE_JSON = ROOT / "web" / "package.json"
 PACKAGE_LOCK = ROOT / "web" / "package-lock.json"
 OPENAPI = ROOT / "web" / "src" / "api" / "openapi.json"
+UV_LOCK = ROOT / "uv.lock"
 
 # 0.<里程碑主号>.<里程碑次号>-<阶段>；次号与阶段号可省略阶段序号
 RULE = re.compile(r"^0\.(\d+)\.(\d+)-(alpha|beta|rc)(?:\.(\d+))?$")
 INIT_RE = re.compile(r'^__version__\s*=\s*"([^"]+)"', re.MULTILINE)
 PYPROJECT_RE = re.compile(r'^version\s*=\s*"([^"]+)"', re.MULTILINE)
+# uv.lock 里项目自身条目（editable 包）；版本变更后必须 uv lock，否则 CI 的 --frozen 直接失败
+UV_LOCK_ENTRY_RE = re.compile(r'^name = "zhyonlineedu"\nversion = "([^"]+)"', re.MULTILINE)
 
 
 def normalize(version: str) -> str:
@@ -87,6 +90,21 @@ def main() -> int:
             problems.append(
                 f"web/src/api/openapi.json info.version={spec_version!r} 与 {canonical!r} 不一致；"
                 "请运行 scripts/export_openapi.py"
+            )
+
+    # 5. uv.lock 里的项目自身条目（CI 用 `uv sync --frozen`，版本不同步会直接失败）
+    try:
+        lock_text = UV_LOCK.read_text(encoding="utf-8")
+    except OSError as exc:  # pragma: no cover - 文件缺失
+        problems.append(f"uv.lock 读取失败：{exc}")
+    else:
+        entry = UV_LOCK_ENTRY_RE.search(lock_text)
+        if not entry:
+            problems.append("uv.lock 缺少 zhyonlineedu 条目")
+        elif normalize(entry.group(1)) != normalize(canonical):
+            problems.append(
+                f"uv.lock zhyonlineedu version={entry.group(1)!r} 与 {canonical!r} 不一致；"
+                "请运行 uv lock"
             )
 
     if problems:

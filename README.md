@@ -201,10 +201,13 @@ FFmpeg 沙箱资产见 `deploy/ffmpeg/`（`bwrap-launcher.sh`、`seccomp.json`�
 | 正式发布 | `1.0.0` |
 
 - **唯一来源**：`zhyonlineedu/__init__.py` 的 `__version__`。`pyproject.toml`（PEP 440 归一为
-  `0.3.4a0`）、`web/package.json`、`web/package-lock.json`、`web/src/api/openapi.json` 必须同步，
-  禁止在代码里散落版本字符串。
-- **自动校验**：`scripts/check_version.py` 检查「命名规则 + 各处一致」，CI quality 作业与
-  `pre-commit` 均执行；OpenAPI 规格的 `info.version` 由 `scripts/export_openapi.py` 从
+  `0.3.4a0`）、`uv.lock`（项目自身条目）、`web/package.json`、`web/package-lock.json`、
+  `web/src/api/openapi.json` 必须同步，禁止在代码里散落版本字符串。
+- **改版本号的顺序**：改 `__version__` 与 `pyproject.toml` → `uv lock`（重算 `uv.lock` 项目版本）
+  → 改前端两处 → `scripts/export_openapi.py` 重新生成 → `scripts/check_version.py`。漏掉 `uv lock`
+  会让 CI 的 `uv sync --frozen` 直接失败。
+- **自动校验**：`scripts/check_version.py` 检查「命名规则 + 各处一致」（含 `uv.lock`），CI quality
+  作业与 `pre-commit` 均执行；OpenAPI 规格的 `info.version` 由 `scripts/export_openapi.py` 从
   `__version__` 生成。
 - **运行时暴露**：`GET /healthz` 与 `GET /api/v1/openapi.json` 返回同一版本号；镜像与部署用
   `ZHY_VERSION`（`docker-compose.yml` 默认 `dev`，发版时传 `0.3.4-alpha`）保持同一标签。
