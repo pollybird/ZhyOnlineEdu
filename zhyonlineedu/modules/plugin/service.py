@@ -54,6 +54,7 @@ from zhyonlineedu.core.db.models.system import utcnow
 from zhyonlineedu.core.errors import AppError
 from zhyonlineedu.core.plugin.loader import LoadedPlugin, load_server, unload
 from zhyonlineedu.core.plugin.manifest import MANIFEST_FILE, PluginManifest, load_manifest
+from zhyonlineedu.core.sdk.context import using
 
 logger = logging.getLogger(__name__)
 
@@ -392,7 +393,9 @@ class PluginService:
             raise AppError(PLUGIN_NOT_FOUND, data={"code": code})
         if subpath not in loaded.handlers:
             raise AppError(NOT_FOUND, data={"code": code, "path": subpath})
-        return loaded.handle(subpath)
+        # SDK 作用域：插件身份与能力来自 manifest，handler 内无法自造或提权
+        with using(loaded.manifest.code, loaded.manifest.capabilities):
+            return loaded.handle(subpath)
 
     # ── 内部 ──────────────────────────────────────────────────────────
 

@@ -56,11 +56,19 @@ PASSWORD = "S3cret-pass"  # noqa: S105 - 测试用固定口令
 READY = ProbeResult(ProbeState.READY, flavor="sqlite", capabilities={"returning": True})
 
 SERVER_SOURCE = """\
+from zhyonlineedu.core import sdk
+
+
 def _hello():
     return {"message": "hello from plugin"}
 
 
-HANDLERS = {"hello": _hello}
+def _flavor():
+    # 验证 dispatch 已绑定 SDK 作用域（manifest 身份源自内核装配）
+    return {"flavor": sdk.compat.flavor()}
+
+
+HANDLERS = {"hello": _hello, "flavor": _flavor}
 """
 
 PLUGIN_CODE = "demo"
@@ -146,7 +154,7 @@ def _manifest(code: str = PLUGIN_CODE, **overrides: Any) -> dict[str, Any]:
         "entry_server": "server.py",
         "supported_modes": ["internal", "external"],
         "capabilities": ["progress:read"],
-        "routes": ["hello"],
+        "routes": ["hello", "flavor"],
         "menu": [{"title": "插件演示", "path": "/system/plugins"}],
     }
     data.update(overrides)
@@ -278,7 +286,7 @@ def test_plugin_install_enable_dispatch_disable(tmp_path: Path) -> None:
     assert data["schema_rev"] == f"{PLUGIN_CODE}_0001"
     assert data["table_prefix"] == f"plg_{PLUGIN_CODE}_"
     assert f"plg_{PLUGIN_CODE}_note" in _tables(config)
-    assert data["routes"] == ["hello"]
+    assert data["routes"] == ["hello", "flavor"]
 
     # 未启用：分发入口 404（不泄露插件是否存在）
     gated = client.get(path, headers=student)
@@ -292,6 +300,11 @@ def test_plugin_install_enable_dispatch_disable(tmp_path: Path) -> None:
     served = client.get(path, headers=student)
     assert served.status_code == 200, served.get_json()
     assert served.get_json()["data"]["message"] == "hello from plugin"
+
+    # 分发入口已绑定 SDK 作用域（sdk.compat 只读可用）
+    flavor = client.get(f"/api/v1/plugin/{PLUGIN_CODE}/flavor", headers=student)
+    assert flavor.status_code == 200, flavor.get_json()
+    assert flavor.get_json()["data"]["flavor"] == "sqlite"
 
     disabled = client.post(f"/api/v1/system/plugins/{PLUGIN_CODE}/disable", headers=admin)
     assert disabled.status_code == 200, disabled.get_json()

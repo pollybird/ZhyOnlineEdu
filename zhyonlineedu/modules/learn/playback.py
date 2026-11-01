@@ -59,6 +59,7 @@ from zhyonlineedu.core.media.keys import (
 from zhyonlineedu.core.media.playlist import RewriteContext, rewrite_master, rewrite_variant
 from zhyonlineedu.core.mode import (
     AccessSpec,
+    Decision,
     ModeState,
     TicketSpec,
     decide_access,
@@ -132,7 +133,19 @@ class PlaybackService:
 
     # ── 签发 ──────────────────────────────────────────────────────────────
 
-    def issue(self, request: TicketRequest, *, now: datetime | None = None) -> dict[str, Any]:
+    def issue(
+        self,
+        request: TicketRequest,
+        *,
+        now: datetime | None = None,
+        max_profile: str | None = None,
+        ttl_override: int | None = None,
+    ) -> dict[str, Any]:
+        """签发播放票据。
+
+        `max_profile` / `ttl_override` 只服务于插件降权 SDK（§11.9）：
+        档位向上裁剪、TTL 与模式策略取小，**不会**放宽授权。
+        """
         moment = now or datetime.now(UTC)
         lesson, course, asset = self._load(request.lesson_id)
         if asset.status != "encoded" or not asset.kid:
@@ -147,31 +160,7 @@ class PlaybackService:
             )
 
         # 统一访问判定（§9.4 决策表 1~14）：模式 / 上架态 / 授权方式只有这一个入口
-        state = get_mode_context(self.config, db=self.db).snapshot()
-        class_member = (
-            False
-            if request.can_preview or lesson.is_free or course.access_type != "class"
-            else self._class_member(request.user_id)
-        )
-        member_level = (
-            None
-            if request.can_preview or lesson.is_free or course.access_type != "member"
-            else self._member_level(request.user_id)
-        )
-        decision = decide_access(
-            AccessSpec(
-                mode=state.mode,
-                epoch=state.epoch,
-                course_mode=course.mode,
-                course_status=course.status,
-                access_type=course.access_type,
-                lesson_is_free=bool(lesson.is_free),
-                can_preview=request.can_preview,
-                class_member=class_member,
-                member_level=member_level,
-                required_level=1,
-            )
-        )
+        decision, state, class_member, member_level = self._decide(request, lesson, course)
         if not decision.allowed:
             raise AppError(
                 decision.code or ACCESS_LEVEL_REQUIRED,
@@ -185,12 +174,16 @@ class PlaybackService:
             )
         preview = decision.preview
 
-        profiles = self._profiles(asset)
+        profiles = self._profiles(asset, max_profile=max_profile)
         if not profiles:
             raise AppError(Code.MEDIA_NOT_READY, data={"reason": "profiles_empty"})
 
         ttl_ts = self.config.get_int("media.ttl_ts")
         ttl_playlist, ttl_key = self._ttls(state)
+        if ttl_override is not None:
+            ttl_ts = min(ttl_ts, ttl_override)
+            ttl_playlist = min(ttl_playlist, ttl_override)
+            ttl_key = min(ttl_key, ttl_override)
         expires = moment + timedelta(seconds=ttl_ts)
         url_exp = int((moment + timedelta(seconds=ttl_playlist)).timestamp())
         nonce = secrets.token_hex(NONCE_BYTES)
@@ -248,6 +241,58 @@ class PlaybackService:
             "metric_version": ZHY_PROGRESS_METRIC_VERSION,
         }
 
+    def evaluate_lesson(
+        self, *, user_id: int, lesson_id: int, can_preview: bool = False
+    ) -> dict[str, Any]:
+        """只读访问判定（§11.9 SDK）：不签票、不写进度，复用同一 `decide_access`。"""
+        lesson, course = self._load_lesson(lesson_id)
+        request = TicketRequest(
+            user_id=user_id, username="", lesson_id=lesson_id, can_preview=can_preview
+        )
+        decision, state, _, _ = self._decide(request, lesson, course)
+        return {
+            "allowed": decision.allowed,
+            "code": decision.code,
+            "reason": decision.reason,
+            "rule": decision.rule,
+            "preview": decision.preview,
+            "lesson_id": int(lesson_id),
+            "course_id": int(course.id),
+            "mode": state.mode,
+            "epoch": state.epoch,
+        }
+
+    def _decide(
+        self, request: TicketRequest, lesson: EduCourseLesson, course: EduCourse
+    ) -> tuple[Decision, ModeState, bool, int | None]:
+        """统一访问判定（§9.4 决策表 1~14）：票据与 SDK 只读视图共用。"""
+        state = get_mode_context(self.config, db=self.db).snapshot()
+        class_member = (
+            False
+            if request.can_preview or lesson.is_free or course.access_type != "class"
+            else self._class_member(request.user_id)
+        )
+        member_level = (
+            None
+            if request.can_preview or lesson.is_free or course.access_type != "member"
+            else self._member_level(request.user_id)
+        )
+        decision = decide_access(
+            AccessSpec(
+                mode=state.mode,
+                epoch=state.epoch,
+                course_mode=course.mode,
+                course_status=course.status,
+                access_type=course.access_type,
+                lesson_is_free=bool(lesson.is_free),
+                can_preview=request.can_preview,
+                class_member=class_member,
+                member_level=member_level,
+                required_level=1,
+            )
+        )
+        return decision, state, class_member, member_level
+
     @staticmethod
     def _watermark(username: str, ip: str) -> dict[str, Any]:
         return {
@@ -257,12 +302,23 @@ class PlaybackService:
         }
 
     @staticmethod
-    def _profiles(asset: MediaAsset) -> list[str]:
+    def _profiles(asset: MediaAsset, *, max_profile: str | None = None) -> list[str]:
         try:
             raw = json.loads(str(asset.profiles or "[]"))
         except json.JSONDecodeError:
             return []
-        return [item for item in raw if item in PROFILE_NAMES]
+        profiles = [item for item in raw if item in PROFILE_NAMES]
+        if max_profile is None:
+            return profiles
+        if max_profile not in PROFILE_NAMES:
+            raise AppError(
+                Code.MEDIA_TICKET_MISMATCH,
+                data={"requested_profile": max_profile},
+            )
+        ceiling = PROFILE_NAMES.index(max_profile)
+        capped = [item for item in profiles if PROFILE_NAMES.index(item) <= ceiling]
+        # 资产没有低档位时取现有最低档，保证降权票仍可播放
+        return capped or profiles[:1]
 
     @staticmethod
     def _access_hash(
@@ -305,7 +361,7 @@ class PlaybackService:
             ).scalar()
         return int(value or 0)
 
-    def _load(self, lesson_id: int) -> tuple[EduCourseLesson, EduCourse, MediaAsset]:
+    def _load_lesson(self, lesson_id: int) -> tuple[EduCourseLesson, EduCourse]:
         with Session(self.db.engine) as session:
             lesson = session.get(EduCourseLesson, lesson_id)
             if lesson is None or lesson.deleted_at is not None:
@@ -313,6 +369,12 @@ class PlaybackService:
             course = session.get(EduCourse, lesson.course_id)
             if course is None or course.deleted_at is not None:
                 raise AppError(NOT_FOUND, data={"lesson_id": lesson_id})
+            session.expunge_all()
+            return lesson, course
+
+    def _load(self, lesson_id: int) -> tuple[EduCourseLesson, EduCourse, MediaAsset]:
+        lesson, course = self._load_lesson(lesson_id)
+        with Session(self.db.engine) as session:
             asset = session.execute(
                 select(MediaAsset).where(MediaAsset.lesson_id == lesson_id)
             ).scalar_one_or_none()
