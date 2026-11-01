@@ -61,6 +61,12 @@ export type ErrorCode =
   | "PAY_STATE_INVALID"
   | "PERMISSION_DENIED"
   | "PLUGIN_CAP_DENIED"
+  | "PLUGIN_LOAD_FAILED"
+  | "PLUGIN_MANIFEST_INVALID"
+  | "PLUGIN_MIGRATION_INVALID"
+  | "PLUGIN_NOT_FOUND"
+  | "PLUGIN_STATE_INVALID"
+  | "PLUGIN_TABLE_PREFIX_INVALID"
   | "REGISTRATION_CLOSED"
   | "SUBJECT_DISABLED"
   | "TRANSCODE_PAUSED"
@@ -841,6 +847,45 @@ export interface PayReconcileIn {
   /** 缺省按订单快照金额 */
   amount?: string | null;
   provider_txn_id?: string | null;
+}
+
+export interface PluginDispatchOut {
+  [key: string]: unknown;
+}
+
+export interface PluginListOut {
+  items: PluginOut[];
+  total: number;
+  plugin_dir: string;
+}
+
+export interface PluginMenuOut {
+  title: string;
+  path?: string | null;
+}
+
+export interface PluginOut {
+  code: string;
+  name: string;
+  version: string;
+  state: "disabled" | "enabled" | "failed";
+  core_api_min: string;
+  table_prefix: string;
+  /** 插件独立迁移链当前 revision */
+  schema_rev: string | null;
+  supported_modes: ("internal" | "external")[];
+  capabilities: string[];
+  capabilities_v2: Record<string, boolean>;
+  routes: string[];
+  menu: PluginMenuOut[];
+  installed_at: string;
+  updated_at: string;
+  error_message: string | null;
+}
+
+export interface PluginUninstallOut {
+  code: string;
+  uninstalled: boolean;
 }
 
 export interface ProgressChapterOut {

@@ -73,6 +73,7 @@ KEYSESSION_TABLES = {"media_keysession"}
 QUIZ_TABLES = {"quiz_question", "quiz_attempt"}
 USERS_TABLES = {"edu_class", "edu_class_member", "sys_import_batch"}
 COMMERCE_TABLES = {"member_level", "pay_order", "member_subscription", "pay_event"}
+PLUGIN_TABLES = {"plugin_registry"}
 ALL_TABLES = (
     SYSTEM_TABLES
     | AUTH_TABLES
@@ -84,8 +85,9 @@ ALL_TABLES = (
     | QUIZ_TABLES
     | USERS_TABLES
     | COMMERCE_TABLES
+    | PLUGIN_TABLES
 )
-HEAD_REV = "0013_lesson_duration"
+HEAD_REV = "0014_plugin_framework"
 DSN_ENV = {"postgresql": "ZHY_TEST_PG_DSN", "mysql": "ZHY_TEST_MYSQL_DSN"}
 
 

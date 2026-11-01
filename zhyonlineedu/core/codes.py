@@ -63,6 +63,12 @@ INSTALL_TOKEN_INVALID = "INSTALL_TOKEN_INVALID"  # 令牌或安装会话无效
 INSTALL_BLOCKED = "INSTALL_BLOCKED"  # db/test blockers 非空，禁止下一步
 CONFLICT_RETRY = "CONFLICT_RETRY"  # 乐观锁/排序并发
 PLUGIN_CAP_DENIED = "PLUGIN_CAP_DENIED"  # 插件 manifest 能力违规（§11）
+PLUGIN_MANIFEST_INVALID = "PLUGIN_MANIFEST_INVALID"  # manifest 缺字段/格式不符（附录 E）
+PLUGIN_TABLE_PREFIX_INVALID = "PLUGIN_TABLE_PREFIX_INVALID"  # 插件建表未用 plg_<code>_ 前缀
+PLUGIN_MIGRATION_INVALID = "PLUGIN_MIGRATION_INVALID"  # 插件迁移链断裂/缺 delete_seq/裸 SQL
+PLUGIN_NOT_FOUND = "PLUGIN_NOT_FOUND"  # 插件未安装或已禁用
+PLUGIN_STATE_INVALID = "PLUGIN_STATE_INVALID"  # 当前插件状态不允许该操作（§11 生命周期）
+PLUGIN_LOAD_FAILED = "PLUGIN_LOAD_FAILED"  # 插件入口加载失败（内核继续可用）
 COURSE_ASSET_NOT_READY = "COURSE_ASSET_NOT_READY"  # 上架前置：课时 asset 未 encoded（§10.2）
 CATALOG_NOT_EMPTY = "CATALOG_NOT_EMPTY"  # 目录仍有子节点/课程，禁止删除
 # 会员订单 / 支付回调（§10.6）：状态只前进不后退（PAY-STATE-001~004）
@@ -129,6 +135,12 @@ _SPECS: dict[Code | str, ErrorSpec] = {
     INSTALL_BLOCKED: ErrorSpec(409, "安装前置条件未满足", "none"),
     CONFLICT_RETRY: ErrorSpec(409, "数据已更新，请重试", "retry"),
     PLUGIN_CAP_DENIED: ErrorSpec(403, "插件能力越权", "none"),
+    PLUGIN_MANIFEST_INVALID: ErrorSpec(422, "插件清单不合法", "none"),
+    PLUGIN_TABLE_PREFIX_INVALID: ErrorSpec(409, "插件表前缀不合规", "none"),
+    PLUGIN_MIGRATION_INVALID: ErrorSpec(409, "插件迁移脚本不合法", "none"),
+    PLUGIN_NOT_FOUND: ErrorSpec(404, "插件未安装或已禁用", "none"),
+    PLUGIN_STATE_INVALID: ErrorSpec(409, "插件状态不允许该操作", "none"),
+    PLUGIN_LOAD_FAILED: ErrorSpec(500, "插件加载失败", "contact_support"),
     COURSE_ASSET_NOT_READY: ErrorSpec(409, "课程资源尚未就绪，禁止上架", "none"),
     CATALOG_NOT_EMPTY: ErrorSpec(409, "目录下仍有子节点或课程", "none"),
     PAY_STATE_INVALID: ErrorSpec(409, "订单状态不允许该操作", "none"),

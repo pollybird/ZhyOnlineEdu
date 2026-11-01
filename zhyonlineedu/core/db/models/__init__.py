@@ -2,7 +2,8 @@
 
 M1.6 起账号 / 会话 / RBAC 表由 `account` 模块注册；M2.1 起目录/课程三层与
 媒体资产由 `catalog` / `media` 模块注册；M2.5 进度与票据、M2.6 题库作答由
-`learn` / `quiz` 模块注册；迁移链与模型列逐一比对（D37）。
+`learn` / `quiz` 模块注册；迁移链与模型列逐一比对（D37）；
+M3 起插件注册表由 `plugin` 模块注册。
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from .catalog import EduCourse, EduCourseChapter, EduCourseLesson, EduSubject
 from .commerce import MemberLevel, MemberSubscription, PayEvent, PayOrder
 from .learn import LearnCourseProgress, LearnProgress, LearnProgressGate, LearnProgressLog
 from .media import MediaAsset, MediaKeySession
+from .plugin import PluginRegistry
 from .quiz import QuizAttempt, QuizQuestion
 from .system import SysCompatFlags, SysConfig, SysInstallState, SysModeConfig, SysModeState
 from .users import EduClass, EduClassMember, SysImportBatch
@@ -43,6 +45,7 @@ __all__ = [
     "MemberSubscription",
     "PayEvent",
     "PayOrder",
+    "PluginRegistry",
     "QuizAttempt",
     "QuizQuestion",
     "SysCompatFlags",

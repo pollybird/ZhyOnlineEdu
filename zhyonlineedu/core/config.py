@@ -246,6 +246,9 @@ KEY_SPECS: tuple[ConfigKey, ...] = (
         choices=("local", "s3", "oss"),
     ),
     ConfigKey("storage.local_dir", "ZHY_STORAGE_LOCAL_DIR", Kind.STR, bootstrap=True),
+    # 插件体系（M3）：插件目录随部署下发，启动时按注册表加载已启用插件；
+    # bootstrap 键避免"连库前就要用的路径由库决定"成环。
+    ConfigKey("plugin.dir", "ZHY_PLUGIN_DIR", Kind.STR, bootstrap=True),
 )
 
 KEY_BY_KEY: Mapping[str, ConfigKey] = {spec.key: spec for spec in KEY_SPECS}

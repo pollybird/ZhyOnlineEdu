@@ -55,6 +55,7 @@ TAG_DESCRIPTIONS: Mapping[str, str] = {
     "system": ("双模式状态 / 预检 / 切换向导（epoch 乐观锁 · 切换不改表 · §9.3 / §9.6）"),
     "member": ("会员档位 / 我的会员 / 直接开通（金额快照 6 位小数 · 订阅叠加不吞时长 · §10.6）"),
     "pay": ("订单 / 回调 / 查单补偿（状态只前进不后退 · event_id 幂等 · §10.6）"),
+    "plugin": ("插件生命周期与路由分发（manifest 校验 / 独立迁移链 / 禁用即 404 · §11）"),
 }
 
 
@@ -174,6 +175,7 @@ def _all_api_blueprints() -> tuple[Any, ...]:
     from zhyonlineedu.api.install import bp as install_bp
     from zhyonlineedu.api.learn import bp as learn_bp
     from zhyonlineedu.api.media import bp as media_bp
+    from zhyonlineedu.api.plugin import bp as plugin_bp
     from zhyonlineedu.api.quiz import bp as quiz_bp
     from zhyonlineedu.api.system import bp as system_bp
     from zhyonlineedu.api.transcode import bp as transcode_bp
@@ -190,6 +192,7 @@ def _all_api_blueprints() -> tuple[Any, ...]:
         users_bp,
         system_bp,
         commerce_bp,
+        plugin_bp,
     )
 
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 # ── 安装向导 ────────────────────────────────────────────────────────────────
 
@@ -1144,3 +1144,46 @@ class PayReconcileIn(BaseModel):
     status: Literal["paying", "paid", "failed"] = "paid"
     amount: str | None = Field(default=None, description="缺省按订单快照金额")
     provider_txn_id: str | None = Field(default=None, max_length=64)
+
+
+# ── 插件体系（M3，§11）──────────────────────────────────────────────────────
+
+
+class PluginMenuOut(BaseModel):
+    title: str
+    path: str | None = None
+
+
+class PluginOut(BaseModel):
+    code: str
+    name: str
+    version: str
+    state: Literal["disabled", "enabled", "failed"]
+    core_api_min: str
+    table_prefix: str
+    schema_rev: str | None = Field(description="插件独立迁移链当前 revision")
+    supported_modes: list[Literal["internal", "external"]]
+    capabilities: list[str]
+    capabilities_v2: dict[str, bool]
+    routes: list[str]
+    menu: list[PluginMenuOut]
+    installed_at: str
+    updated_at: str
+    error_message: str | None
+
+
+class PluginListOut(BaseModel):
+    items: list[PluginOut]
+    total: int
+    plugin_dir: str
+
+
+class PluginUninstallOut(BaseModel):
+    code: str
+    uninstalled: bool
+
+
+class PluginDispatchOut(BaseModel):
+    """插件业务响应：数据结构由插件自定义，内核只负责统一信封包裹。"""
+
+    model_config = ConfigDict(extra="allow")

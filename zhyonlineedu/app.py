@@ -22,6 +22,7 @@ from zhyonlineedu.api.commerce import bp as commerce_bp
 from zhyonlineedu.api.install import bp as install_bp
 from zhyonlineedu.api.learn import bp as learn_bp
 from zhyonlineedu.api.media import bp as media_bp
+from zhyonlineedu.api.plugin import bp as plugin_bp
 from zhyonlineedu.api.quiz import bp as quiz_bp
 from zhyonlineedu.api.system import bp as system_bp
 from zhyonlineedu.api.transcode import bp as transcode_bp
@@ -48,6 +49,7 @@ from zhyonlineedu.modules.learn.playback import PlaybackService
 from zhyonlineedu.modules.learn.profile import ProfileService
 from zhyonlineedu.modules.media.transcode_service import TranscodeService
 from zhyonlineedu.modules.media.upload_service import UploadService
+from zhyonlineedu.modules.plugin.service import PluginService
 from zhyonlineedu.modules.users.service import UsersService
 
 _DETAIL: dict[ProbeState, str] = {
@@ -96,7 +98,7 @@ def register_business_blueprints(app: Flask) -> None:
     M1.6 起注册认证/RBAC；M2.1 起注册学科树/课程三层；M2.3 起注册分片上传；
     M2.4 起注册转码资产；M2.5 起注册播放票据与进度；M2.6 起注册题库与作答；
     M2.7 起注册用户/班级/导入；M2.10 起注册双模式状态与切换向导；M2.12 起注册会员/订单/
-    支付回调；后续模块沿用同一入口，禁止在安装期注册。
+    支付回调；M3 起注册插件管理与插件路由分发；后续模块沿用同一入口，禁止在安装期注册。
     """
     app.register_blueprint(auth_bp)
     app.register_blueprint(catalog_bp)
@@ -107,6 +109,7 @@ def register_business_blueprints(app: Flask) -> None:
     app.register_blueprint(users_bp)
     app.register_blueprint(system_bp)
     app.register_blueprint(commerce_bp)
+    app.register_blueprint(plugin_bp)
 
 
 def _assign_request_id() -> None:
@@ -230,7 +233,11 @@ def create_app(config: Config | None = None, probe: CapabilityProbe | None = Non
         app.extensions["zhy_users"] = UsersService(cfg)
         app.extensions["zhy_mode_service"] = ModeService(cfg)
         app.extensions["zhy_commerce"] = CommerceService(cfg)
+        plugin_service = PluginService(cfg)
+        app.extensions["zhy_plugin"] = plugin_service
         register_business_blueprints(app)
         app.extensions["zhy_business_registered"] = True
+        # 已启用插件随启动挂载；单插件失败只标记 failed，不阻塞内核装配
+        plugin_service.boot()
 
     return app
