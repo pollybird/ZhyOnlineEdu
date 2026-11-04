@@ -1,0 +1,17 @@
+{
+  "code": "reference_certificate",
+  "name": "参考插件：结业证书",
+  "version": "1.0.0",
+  "core_api_min": "0.3.0",
+  "entry_server": "server.py",
+  "entry_web": "web/index.js",
+  "supported_modes": ["internal", "external"],
+  "capabilities": ["event:subscribe"],
+  "routes": ["certificates"],
+  "menu": [
+    {
+      "title": "我的证书",
+      "path": "/plugin/reference_certificate/certificates"
+    }
+  ]
+}

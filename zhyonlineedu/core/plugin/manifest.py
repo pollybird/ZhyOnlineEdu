@@ -51,6 +51,7 @@ ALLOWED_CAPABILITIES: frozenset[str] = frozenset(
         "progress:report",
         "media:ticket:issue",
         "access:evaluate",
+        "event:subscribe",
         "config:read",
         "log:read",
     }

@@ -52,6 +52,7 @@ from zhyonlineedu.core.db.models.plugin import (
 )
 from zhyonlineedu.core.db.models.system import utcnow
 from zhyonlineedu.core.errors import AppError
+from zhyonlineedu.core.events import EventBus, get_bus
 from zhyonlineedu.core.plugin.loader import LoadedPlugin, load_server, unload
 from zhyonlineedu.core.plugin.manifest import (
     MANIFEST_FILE,
@@ -161,11 +162,23 @@ def _summary(row: PluginRegistry) -> PluginSummary:
 class PluginService:
     """插件生命周期 + 进程内路由表（无状态服务，自建短事务）。"""
 
-    def __init__(self, config: Config, *, db: Database | None = None) -> None:
+    def __init__(
+        self,
+        config: Config,
+        *,
+        db: Database | None = None,
+        events: EventBus | None = None,
+    ) -> None:
         self.config = config
         self._db = db
+        self._events = events
         self._lock = threading.RLock()
         self._loaded: dict[str, LoadedPlugin] = {}
+
+    @property
+    def events(self) -> EventBus:
+        """事件总线：显式注入优先，否则取 app 上下文 / 进程默认总线。"""
+        return self._events or get_bus()
 
     # ── 基础 ──────────────────────────────────────────────────────────
 
@@ -403,6 +416,8 @@ class PluginService:
                 loaded = self._loaded.pop(code, None)
                 if loaded is not None:
                     unload(loaded)
+                # 禁用即摘订阅：disabled 插件不得继续收到事件
+                self.events.unsubscribe_plugin(code)
                 row.state = STATE_DISABLED
                 row.updated_at = utcnow()
                 self._audit_event(session, AUDIT_DISABLE, row.code, row.plugin_version, operator_id)
@@ -429,6 +444,7 @@ class PluginService:
             loaded = self._loaded.pop(code, None)
             if loaded is not None:
                 unload(loaded)
+            self.events.unsubscribe_plugin(code)
             with Session(engine) as session:
                 fresh = session.get(PluginRegistry, code)
                 if fresh is None:
@@ -523,8 +539,15 @@ class PluginService:
     # ── 内部 ──────────────────────────────────────────────────────────
 
     def _mount(self, manifest: PluginManifest) -> None:
+        # 重复挂载（重装已启用插件）必须先摘旧订阅，否则 setup() 会叠加一份监听
+        self.events.unsubscribe_plugin(manifest.code)
         plugin_dir = self.plugin_dir(manifest.code)
-        self._loaded[manifest.code] = load_server(plugin_dir, manifest)
+        try:
+            self._loaded[manifest.code] = load_server(plugin_dir, manifest)
+        except Exception:
+            # setup() 阶段可能已注册订阅：加载失败必须回滚，避免 failed 插件仍在派发
+            self.events.unsubscribe_plugin(manifest.code)
+            raise
 
     def _load_manifest_for(self, row: PluginRegistry) -> PluginManifest:
         plugin_dir = self.plugin_dir(row.code)

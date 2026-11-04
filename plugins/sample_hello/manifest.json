@@ -1,0 +1,17 @@
+{
+  "code": "sample_hello",
+  "name": "示例插件 Hello",
+  "version": "1.0.0",
+  "core_api_min": "0.3.0",
+  "entry_server": "server.py",
+  "entry_web": "web/index.js",
+  "supported_modes": ["internal", "external"],
+  "capabilities": [],
+  "routes": ["hello"],
+  "menu": [
+    {
+      "title": "示例插件",
+      "path": "/plugin/sample_hello"
+    }
+  ]
+}

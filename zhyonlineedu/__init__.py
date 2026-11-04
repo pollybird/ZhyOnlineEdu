@@ -8,4 +8,4 @@
 `scripts/check_version.py` 在 CI 中校验各处一致性与命名规则。
 """
 
-__version__ = "0.3.6-alpha"
+__version__ = "0.3.7-alpha"

@@ -41,6 +41,7 @@ from zhyonlineedu.core.db.models.learn import (
     utcnow,
 )
 from zhyonlineedu.core.db.query import not_deleted
+from zhyonlineedu.core.events import EVENT_LESSON_FINISHED, EventBus
 from zhyonlineedu.core.progress.bus import ProgressBus, get_bus
 
 logger = logging.getLogger(__name__)
@@ -64,6 +65,7 @@ class ProgressFlush:
         *,
         db: Database | None = None,
         bus: ProgressBus | None = None,
+        events: EventBus | None = None,
     ) -> None:
         self.config = config
         self._db = db
@@ -72,6 +74,7 @@ class ProgressFlush:
             ring_dir=config.get_str("progress.ring_dir"),
             url=config.get_str("redis.url"),
         )
+        self._events = events
         self.writer = writer_id()
 
     @property
@@ -133,12 +136,16 @@ class ProgressFlush:
                 session.commit()
 
         for (user_id, lesson_id, course_id), ids in groups.items():
+            transition: dict[str, Any] | None = None
             with Session(self.db.engine) as session:
                 self._mark_flushed(session, ids, moment)
-                self._project(session, user_id, lesson_id, course_id, moment)
+                transition = self._project(session, user_id, lesson_id, course_id, moment)
                 self._project_course(session, user_id, course_id, moment)
                 self._extend_lease(session, moment)
                 session.commit()
+            # 提交后再派发：订阅方读到的投影一定是已落库状态
+            if transition is not None:
+                self._emit_lesson_finished(transition)
 
         try:
             self._bus.ack(max_gw_seq)
@@ -156,7 +163,8 @@ class ProgressFlush:
 
     def _project(
         self, session: Session, user_id: int, lesson_id: int, course_id: int, moment: datetime
-    ) -> None:
+    ) -> dict[str, Any] | None:
+        """重算课时投影；「未完成 → 已完成」跃迁时返回 `lesson.finished` 事件载荷。"""
         agg = session.execute(
             select(
                 func.coalesce(func.sum(LearnProgressLog.played_seconds), 0),
@@ -204,8 +212,11 @@ class ProgressFlush:
                     source="recovery",
                 )
             )
-            return
+            if completed:
+                return self._finished_payload(user_id, lesson_id, course_id, percent)
+            return None
 
+        was_completed = bool(row.completed)
         # GREATEST：重算值低于库内值时不回退（红线 2）
         session.execute(
             text(
@@ -237,6 +248,51 @@ class ProgressFlush:
                 lid=lesson_id,
             )
         )
+        if completed and not was_completed:
+            return self._finished_payload(user_id, lesson_id, course_id, percent)
+        return None
+
+    @staticmethod
+    def _finished_payload(
+        user_id: int, lesson_id: int, course_id: int, percent: Decimal
+    ) -> dict[str, Any]:
+        """`lesson.finished` 载荷（契约键名固定，见 §11 事件表）。"""
+        return {
+            "user": user_id,
+            "lesson": lesson_id,
+            "course": course_id,
+            "percent": float(percent),
+            "via_ticket_preview": False,
+        }
+
+    def _event_bus(self) -> EventBus | None:
+        if self._events is not None:
+            return self._events
+        try:
+            from flask import current_app, has_app_context
+
+            if has_app_context():
+                bus = current_app.extensions.get("zhy_events")
+                if isinstance(bus, EventBus):
+                    return bus
+        except ImportError:  # pragma: no cover - Flask 恒定可用
+            pass
+        return None
+
+    def _emit_lesson_finished(self, payload: dict[str, Any]) -> None:
+        """派发 `lesson.finished`；订阅方失败/超时只告警，不影响落库与后续分组。"""
+        bus = self._event_bus()
+        if bus is None:
+            logger.debug("无事件总线，跳过 lesson.finished 派发")
+            return
+        report = bus.emit(EVENT_LESSON_FINISHED, payload)
+        if not report.ok:
+            logger.warning(
+                "lesson.finished 派发异常 user=%s lesson=%s report=%s",
+                payload.get("user"),
+                payload.get("lesson"),
+                report.as_dict(),
+            )
 
     def _project_course(
         self, session: Session, user_id: int, course_id: int, moment: datetime

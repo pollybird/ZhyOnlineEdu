@@ -29,6 +29,7 @@ from zhyonlineedu.core.codes import (
     PLUGIN_CAP_DENIED,
     PLUGIN_MIGRATION_INVALID,
     PLUGIN_TABLE_PREFIX_INVALID,
+    VALIDATION_FAILED,
 )
 from zhyonlineedu.core.config import Config, load_config
 from zhyonlineedu.core.db import compat
@@ -167,7 +168,7 @@ def _count_logs(config: Config) -> int:
 
 
 def test_sdk_surface_is_narrow() -> None:
-    assert set(sdk.__all__) == {"access", "compat", "media", "progress", "store"}
+    assert set(sdk.__all__) == {"access", "compat", "events", "media", "progress", "store"}
     for forbidden in ("db", "session", "sql", "ddl"):
         assert not hasattr(sdk, forbidden), forbidden
     assert not hasattr(sdk.progress, "record_raw")
@@ -176,8 +177,11 @@ def test_sdk_surface_is_narrow() -> None:
     assert not hasattr(sdk.store, "raw_sql")
     assert not hasattr(sdk.compat, "configure")
     assert not hasattr(sdk.compat, "reset")
+    assert not hasattr(sdk.events, "emit")
     assert set(sdk.progress.__all__) == {"record"}
     assert set(sdk.media.__all__) == {"MAX_PROFILE", "MAX_TTL_OVERRIDE", "issue_ticket"}
+    assert set(sdk.events.__all__) == {"available", "subscribe"}
+    assert set(sdk.store.__all__) == {"MAX_FETCH_ROWS", "fetch", "upsert"}
 
 
 def test_sdk_requires_plugin_scope() -> None:
@@ -251,6 +255,48 @@ def test_store_upsert_is_idempotent(tmp_path: Path) -> None:
         assert second.version >= 2
         assert len(rows) == 1
         assert rows[0].body == "hello"
+    finally:
+        engine.dispose()
+
+
+def test_store_fetch_is_scoped_and_soft_delete_aware(tmp_path: Path) -> None:
+    config = _seed(tmp_path)
+    url = config.get_str("db.url")
+    engine = create_db_engine(url, "sqlite")
+    try:
+        _PluginBase.metadata.create_all(engine)
+        with _app_context(config), using("demo", []):
+            sdk.store.upsert(PluginNote, {"body": "hello", "delete_seq": 0}, ["body", "delete_seq"])
+            # 软删行（delete_seq != 0）对插件读取不可见
+            sdk.store.upsert(PluginNote, {"body": "ghost", "delete_seq": 1}, ["body", "delete_seq"])
+            rows = sdk.store.fetch(PluginNote, limit=10)
+            filtered = sdk.store.fetch(PluginNote, where={"body": "hello"})
+            asc = sdk.store.fetch(PluginNote, order_by="body", descending=False)
+
+            with pytest.raises(AppError) as foreign:
+                sdk.store.fetch(EduCourse)
+            assert foreign.value.code == PLUGIN_TABLE_PREFIX_INVALID
+
+            with pytest.raises(AppError) as no_soft:
+                sdk.store.fetch(NoSoftDelete)
+            assert no_soft.value.code == PLUGIN_MIGRATION_INVALID
+
+            with pytest.raises(AppError) as bad_column:
+                sdk.store.fetch(PluginNote, where={"unknown": 1})
+            assert bad_column.value.code == VALIDATION_FAILED
+
+            with pytest.raises(AppError) as bad_order:
+                sdk.store.fetch(PluginNote, order_by="unknown")
+            assert bad_order.value.code == VALIDATION_FAILED
+
+            with pytest.raises(AppError) as bad_limit:
+                sdk.store.fetch(PluginNote, limit=201)
+            assert bad_limit.value.code == VALIDATION_FAILED
+
+        assert [row["body"] for row in rows] == ["hello"]
+        assert rows[0]["delete_seq"] == 0
+        assert [row["body"] for row in filtered] == ["hello"]
+        assert [row["body"] for row in asc] == ["hello"]
     finally:
         engine.dispose()
 

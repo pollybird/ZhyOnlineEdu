@@ -34,6 +34,7 @@ from zhyonlineedu.core.config import Config, load_config
 from zhyonlineedu.core.constants import ZHY_HEADER_REQUEST_ID
 from zhyonlineedu.core.db.engine import ensure_database
 from zhyonlineedu.core.errors import AppError, register_error_handlers
+from zhyonlineedu.core.events import EventBus
 from zhyonlineedu.core.install import InstallService
 from zhyonlineedu.core.logging import configure_logging
 from zhyonlineedu.core.mode import ModeContext
@@ -187,6 +188,9 @@ def create_app(config: Config | None = None, probe: CapabilityProbe | None = Non
     app.extensions["zhy_probe"] = result
     app.extensions["zhy_state"] = state
     app.extensions["zhy_business_registered"] = False
+    # 事件总线与插件体系同生命周期：插件在 setup() 内注册订阅，禁用即摘除
+    events = EventBus()
+    app.extensions["zhy_events"] = events
 
     def _mark_ready(ready: ProbeResult) -> None:
         state.probe = ready
@@ -233,11 +237,13 @@ def create_app(config: Config | None = None, probe: CapabilityProbe | None = Non
         app.extensions["zhy_users"] = UsersService(cfg)
         app.extensions["zhy_mode_service"] = ModeService(cfg)
         app.extensions["zhy_commerce"] = CommerceService(cfg)
-        plugin_service = PluginService(cfg)
+        plugin_service = PluginService(cfg, events=events)
         app.extensions["zhy_plugin"] = plugin_service
         register_business_blueprints(app)
         app.extensions["zhy_business_registered"] = True
-        # 已启用插件随启动挂载；单插件失败只标记 failed，不阻塞内核装配
-        plugin_service.boot()
+        # 已启用插件随启动挂载；单插件失败只标记 failed，不阻塞内核装配。
+        # 需要 app 上下文：插件的 setup() 可能通过 SDK 读配置/订阅事件。
+        with app.app_context():
+            plugin_service.boot()
 
     return app
