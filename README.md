@@ -8,7 +8,7 @@ SQLite / MySQL / PostgreSQL / openGauss（5.x / 6.x / 7.0）/ KingbaseES V9 下�
 - 后端：Python 3.11 · Flask 3.1 · SQLAlchemy 2 · Alembic · PyJWT(RS256) · Argon2 · gunicorn
 - 前端：Vue 3 · TypeScript · Vite · Pinia · Element Plus · hls.js
 - 媒体：FFmpeg（bwrap / cgroup 沙箱）+ AES-128 HLS + 三层 TTL 票据
-- 当前版本：**0.3.4-alpha**（命名规则见 [版本号规则](#版本号规则)）
+- 当前版本：**0.3.6-alpha**（命名规则见 [版本号规则](#版本号规则)）
 - 许可证：Apache-2.0（见 [LICENSE](LICENSE)）
 
 ## 能力概览
@@ -195,13 +195,13 @@ FFmpeg 沙箱资产见 `deploy/ffmpeg/`（`bwrap-launcher.sh`、`seccomp.json`�
 | 阶段 | 版本号 |
 |---|---|
 | 完成 M2.15 | `0.2.15-alpha` |
-| 完成 M3.4 | `0.3.4-alpha`（当前） |
-| 完成 M3.6 | `0.3.6-alpha` |
+| 完成 M3.4 | `0.3.4-alpha` |
+| 完成 M3.6 | `0.3.6-alpha`（当前） |
 | 进入 Beta 阶段 | `0.4.0-beta` |
 | 正式发布 | `1.0.0` |
 
 - **唯一来源**：`zhyonlineedu/__init__.py` 的 `__version__`。`pyproject.toml`（PEP 440 归一为
-  `0.3.4a0`）、`uv.lock`（项目自身条目）、`web/package.json`、`web/package-lock.json`、
+  `0.3.6a0`）、`uv.lock`（项目自身条目）、`web/package.json`、`web/package-lock.json`、
   `web/src/api/openapi.json` 必须同步，禁止在代码里散落版本字符串。
 - **改版本号的顺序**：改 `__version__` 与 `pyproject.toml` → `uv lock`（重算 `uv.lock` 项目版本）
   → 改前端两处 → `scripts/export_openapi.py` 重新生成 → `scripts/check_version.py`。漏掉 `uv lock`
@@ -210,12 +210,12 @@ FFmpeg 沙箱资产见 `deploy/ffmpeg/`（`bwrap-launcher.sh`、`seccomp.json`�
   作业与 `pre-commit` 均执行；OpenAPI 规格的 `info.version` 由 `scripts/export_openapi.py` 从
   `__version__` 生成。
 - **运行时暴露**：`GET /healthz` 与 `GET /api/v1/openapi.json` 返回同一版本号；镜像与部署用
-  `ZHY_VERSION`（`docker-compose.yml` 默认 `dev`，发版时传 `0.3.4-alpha`）保持同一标签。
+  `ZHY_VERSION`（`docker-compose.yml` 默认 `dev`，发版时传 `0.3.6-alpha`）保持同一标签。
 
 ## 当前进度
 
 M0（技术验证）~ M2（安装、课程、媒体、播放、进度、题库、会员、双模式与学员/管理端）已完成并
-通过 HBT-001~006 与 MEDIA-001~008 用例；M2.16 压测窗口已收尾。M3.1~3.4（插件 manifest / 生命周期
-/ 独立迁移链 / SDK 收窄）已完成，当前版本 **0.3.4-alpha**。
-M3 剩余 3.5~3.9 进入后续联调。
+通过 HBT-001~006 与 MEDIA-001~008 用例；M2.16 压测窗口已收尾。M3.1~3.6（插件 manifest / 生命周期
+/ 独立迁移链 / SDK 收窄 / 前端 ESM 接入 / 插件管理页）已完成，当前版本 **0.3.6-alpha**。
+M3 剩余 3.7~3.9 进入后续联调。
 实测记录、缺陷与修复过程见 [`spike/RESULTS.md`](spike/RESULTS.md)。

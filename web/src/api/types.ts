@@ -849,19 +849,46 @@ export interface PayReconcileIn {
   provider_txn_id?: string | null;
 }
 
+export interface PluginAvailableOut {
+  code: string;
+  name: string;
+  version?: string | null;
+  error?: string | null;
+}
+
 export interface PluginDispatchOut {
   [key: string]: unknown;
+}
+
+export interface PluginEnabledListOut {
+  items: PluginEnabledOut[];
+  total: number;
+}
+
+export interface PluginEnabledOut {
+  code: string;
+  name: string;
+  version: string;
+  menu: PluginMenuOut[];
+  entry_web?: string | null;
+  /** 前端可直接 import() 的地址 */
+  entry_web_url?: string | null;
 }
 
 export interface PluginListOut {
   items: PluginOut[];
   total: number;
   plugin_dir: string;
+  /** 目录中存在但未安装的插件（供一键安装） */
+  available?: PluginAvailableOut[];
 }
 
 export interface PluginMenuOut {
   title: string;
+  /** 站内绝对路径（以 / 开头） */
   path?: string | null;
+  /** 显隐所需权限码，如 course:edit */
+  permission?: string | null;
 }
 
 export interface PluginOut {
@@ -878,6 +905,8 @@ export interface PluginOut {
   capabilities_v2: Record<string, boolean>;
   routes: string[];
   menu: PluginMenuOut[];
+  /** 前端 ESM 入口（web/ 下相对路径） */
+  entry_web?: string | null;
   installed_at: string;
   updated_at: string;
   error_message: string | null;

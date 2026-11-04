@@ -1,14 +1,37 @@
 <script setup lang="ts">
+import { computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { usePluginStore, visibleMenus } from '../stores/plugin'
 import { modeNameLabel, roleLabel } from '../utils/labels'
 
 /**
- * 应用外壳（M1.7 / M2.14）：学员端与管理端共用导航；
- * 管理入口按 RBAC 权限显隐，移动端导航可横向滚动。
+ * 应用外壳（M1.7 / M2.14 / M3.5）：学员端与管理端共用导航；
+ * 管理入口按 RBAC 权限显隐，插件菜单由 `/api/v1/plugins` 下发（未启用不下发），
+ * 移动端导航可横向滚动。
  */
 const auth = useAuthStore()
+const plugins = usePluginStore()
 const router = useRouter()
+
+const pluginMenus = computed(() => visibleMenus(plugins.menus, (code) => auth.can(code)))
+
+onMounted(() => {
+  if (auth.loggedIn) {
+    void plugins.ensureLoaded()
+  }
+})
+
+watch(
+  () => auth.loggedIn,
+  (loggedIn) => {
+    if (loggedIn) {
+      void plugins.ensureLoaded()
+    } else {
+      plugins.clear()
+    }
+  },
+)
 
 async function logout(): Promise<void> {
   await auth.logout()
@@ -33,6 +56,16 @@ async function logout(): Promise<void> {
         <router-link v-if="auth.can('member:manage')" :to="{ name: 'admin-member' }">会员管理</router-link>
         <router-link v-if="auth.can('system:manage')" :to="{ name: 'mode-switch' }">
           双模式切换
+        </router-link>
+        <router-link v-if="auth.can('system:manage')" :to="{ name: 'admin-plugins' }">
+          插件管理
+        </router-link>
+        <router-link
+          v-for="item in pluginMenus"
+          :key="`${item.code}:${item.title}`"
+          :to="item.path"
+        >
+          {{ item.title }}
         </router-link>
       </nav>
       <div class="shell-spacer" />

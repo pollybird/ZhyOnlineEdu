@@ -32,6 +32,7 @@ from zhyonlineedu.core.errors import AppError
 CODE_PATTERN = re.compile(r"^[a-z][a-z0-9_]{2,63}$")
 VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+$")
 ROUTE_PATTERN = re.compile(r"^[a-z0-9_]{1,64}$")
+PERMISSION_PATTERN = re.compile(r"^[a-z][a-z_]*:[a-z][a-z_]*$")
 _VERSION_TRIPLE = re.compile(r"\d+")
 
 REQUIRED_FIELDS: tuple[str, ...] = (
@@ -58,6 +59,9 @@ CAPABILITIES_V2_KEYS: frozenset[str] = frozenset(
     {"progress_direct_write", "db_ddl", "ffmpeg_direct", "upsert_raw_sql"}
 )
 MANIFEST_FILE = "manifest.json"
+# 前端 ESM 入口与静态资源统一放在 `<plugin_dir>/web/`，只允许代码/样式/字体类后缀
+WEB_ROOT = "web"
+WEB_ENTRY_SUFFIXES: tuple[str, ...] = (".js", ".mjs")
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,6 +77,7 @@ class PluginManifest:
     table_prefix: str
     routes: tuple[str, ...]
     menu: tuple[Mapping[str, Any], ...]
+    entry_web: str | None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -87,6 +92,7 @@ class PluginManifest:
             "table_prefix": self.table_prefix,
             "routes": list(self.routes),
             "menu": [dict(item) for item in self.menu],
+            "entry_web": self.entry_web,
         }
 
 
@@ -133,6 +139,35 @@ def _relative_entry(path: str, errors: list[str]) -> str:
         return normalized
     if not normalized.endswith(".py"):
         errors.append("entry_server 必须是 .py 文件")
+    return normalized
+
+
+def web_asset_path(entry_web: str) -> str:
+    """`web/index.js` → `index.js`（相对 `<plugin_dir>/web/` 的路径）。"""
+    return entry_web[len(WEB_ROOT) + 1 :]
+
+
+def _web_entry(raw: Mapping[str, Any], errors: list[str]) -> str | None:
+    value = raw.get("entry_web")
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        errors.append("entry_web 必须是非空字符串或省略")
+        return None
+    normalized = value.strip().replace("\\", "/")
+    parts = Path(normalized).parts
+    if normalized.startswith("/") or ".." in parts:
+        errors.append("entry_web 必须是插件目录内的相对路径")
+        return None
+    if parts[0] != WEB_ROOT:
+        errors.append(f"entry_web 必须位于 {WEB_ROOT}/ 目录下")
+        return None
+    if not normalized.endswith(WEB_ENTRY_SUFFIXES):
+        errors.append("entry_web 必须是 .js / .mjs 文件")
+        return None
+    if len(parts) < 2:
+        errors.append("entry_web 必须指向具体文件")
+        return None
     return normalized
 
 
@@ -209,7 +244,32 @@ def validate_manifest(raw: Mapping[str, Any]) -> PluginManifest:
         if not isinstance(item, Mapping) or not isinstance(item.get("title"), str):
             errors.append("menu 每项必须是含 title 的对象")
             break
-        menu.append(dict(item))
+        title = item["title"].strip()
+        if not title:
+            errors.append("menu.title 不能为空")
+            break
+        path_value = item.get("path")
+        if path_value is not None:
+            if not isinstance(path_value, str) or not path_value.startswith("/"):
+                errors.append("menu.path 必须是站内绝对路径（以 / 开头）")
+                break
+            if ".." in Path(path_value).parts:
+                errors.append("menu.path 不允许 .. 片段")
+                break
+        permission = item.get("permission")
+        if permission is not None and (
+            not isinstance(permission, str) or not PERMISSION_PATTERN.match(permission)
+        ):
+            errors.append("menu.permission 必须是 `<资源>:<动作>` 形式的权限码")
+            break
+        entry: dict[str, Any] = {"title": title}
+        if isinstance(path_value, str):
+            entry["path"] = path_value
+        if isinstance(permission, str):
+            entry["permission"] = permission
+        menu.append(entry)
+
+    entry_web = _web_entry(raw, errors)
 
     if errors:
         raise _invalid(errors)
@@ -245,6 +305,7 @@ def validate_manifest(raw: Mapping[str, Any]) -> PluginManifest:
         table_prefix=prefix,
         routes=tuple(routes),
         menu=tuple(menu),
+        entry_web=entry_web,
     )
 
 
@@ -271,4 +332,8 @@ def load_manifest(plugin_dir: Path) -> PluginManifest:
     entry = plugin_dir / manifest.entry_server
     if not entry.is_file():
         raise _invalid([f"entry_server 不存在：{manifest.entry_server}"])
+    if manifest.entry_web is not None:
+        web_entry = plugin_dir / manifest.entry_web
+        if not web_entry.is_file():
+            raise _invalid([f"entry_web 不存在：{manifest.entry_web}"])
     return manifest

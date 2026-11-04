@@ -1151,7 +1151,8 @@ class PayReconcileIn(BaseModel):
 
 class PluginMenuOut(BaseModel):
     title: str
-    path: str | None = None
+    path: str | None = Field(default=None, description="站内绝对路径（以 / 开头）")
+    permission: str | None = Field(default=None, description="显隐所需权限码，如 course:edit")
 
 
 class PluginOut(BaseModel):
@@ -1167,15 +1168,44 @@ class PluginOut(BaseModel):
     capabilities_v2: dict[str, bool]
     routes: list[str]
     menu: list[PluginMenuOut]
+    entry_web: str | None = Field(default=None, description="前端 ESM 入口（web/ 下相对路径）")
     installed_at: str
     updated_at: str
     error_message: str | None
+
+
+class PluginAvailableOut(BaseModel):
+    """插件目录中存在但未安装的插件（`error` 非空表示 manifest 不合法）。"""
+
+    code: str
+    name: str
+    version: str | None = None
+    error: str | None = None
 
 
 class PluginListOut(BaseModel):
     items: list[PluginOut]
     total: int
     plugin_dir: str
+    available: list[PluginAvailableOut] = Field(
+        default_factory=list, description="目录中存在但未安装的插件（供一键安装）"
+    )
+
+
+class PluginEnabledOut(BaseModel):
+    """已启用插件（登录即可读，供前端渲染菜单与动态加载 ESM）。"""
+
+    code: str
+    name: str
+    version: str
+    menu: list[PluginMenuOut]
+    entry_web: str | None = None
+    entry_web_url: str | None = Field(default=None, description="前端可直接 import() 的地址")
+
+
+class PluginEnabledListOut(BaseModel):
+    items: list[PluginEnabledOut]
+    total: int
 
 
 class PluginUninstallOut(BaseModel):

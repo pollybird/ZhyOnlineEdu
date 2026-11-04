@@ -24,7 +24,7 @@ import hashlib
 import json
 import logging
 import threading
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -53,7 +53,13 @@ from zhyonlineedu.core.db.models.plugin import (
 from zhyonlineedu.core.db.models.system import utcnow
 from zhyonlineedu.core.errors import AppError
 from zhyonlineedu.core.plugin.loader import LoadedPlugin, load_server, unload
-from zhyonlineedu.core.plugin.manifest import MANIFEST_FILE, PluginManifest, load_manifest
+from zhyonlineedu.core.plugin.manifest import (
+    MANIFEST_FILE,
+    WEB_ROOT,
+    PluginManifest,
+    load_manifest,
+    web_asset_path,
+)
 from zhyonlineedu.core.sdk.context import using
 
 logger = logging.getLogger(__name__)
@@ -63,6 +69,17 @@ AUDIT_ENABLE = "PLUGIN_ENABLE"
 AUDIT_DISABLE = "PLUGIN_DISABLE"
 AUDIT_UNINSTALL = "PLUGIN_UNINSTALL"
 AUDIT_LOAD_FAILED = "PLUGIN_LOAD_FAILED"
+
+# 插件前端资源：只放行代码/样式/字体类后缀（`.py` / 迁移 / 数据文件一律 404）
+ASSET_MEDIA_TYPES: dict[str, str] = {
+    ".js": "text/javascript",
+    ".mjs": "text/javascript",
+    ".css": "text/css",
+    ".json": "application/json",
+    ".svg": "image/svg+xml",
+    ".png": "image/png",
+    ".woff2": "font/woff2",
+}
 
 
 def manifest_hash(plugin_dir: Path) -> str:
@@ -94,6 +111,7 @@ class PluginSummary:
     capabilities_v2: Mapping[str, bool]
     routes: tuple[str, ...]
     menu: tuple[Mapping[str, Any], ...]
+    entry_web: str | None
     installed_at: datetime
     updated_at: datetime
     error_message: str | None
@@ -112,6 +130,7 @@ class PluginSummary:
             "capabilities_v2": dict(self.capabilities_v2),
             "routes": list(self.routes),
             "menu": [dict(item) for item in self.menu],
+            "entry_web": self.entry_web,
             "installed_at": self.installed_at.isoformat(timespec="seconds"),
             "updated_at": self.updated_at.isoformat(timespec="seconds"),
             "error_message": self.error_message,
@@ -132,6 +151,7 @@ def _summary(row: PluginRegistry) -> PluginSummary:
         capabilities_v2=dict(_loads(row.capabilities_v2, {})),
         routes=tuple(_loads(row.routes, [])),
         menu=tuple(_loads(row.menu, [])),
+        entry_web=row.entry_web,
         installed_at=row.installed_at,
         updated_at=row.updated_at,
         error_message=row.error_message,
@@ -172,11 +192,112 @@ class PluginService:
         with Session(self.db.engine) as session:
             rows = session.execute(select(PluginRegistry).order_by(PluginRegistry.code)).scalars()
             items = [_summary(row).as_dict() for row in rows]
-        return {"items": items, "total": len(items), "plugin_dir": str(self.root)}
+        return {
+            "items": items,
+            "total": len(items),
+            "plugin_dir": str(self.root),
+            "available": self.available(),
+        }
+
+    def available(self) -> Sequence[dict[str, Any]]:
+        """插件目录里「存在但未安装」的插件，供管理页一键安装。
+
+        manifest 不合法的目录同样返回一项（`error` 说明原因），
+        避免插件在管理页静默消失；已安装（含 failed）的插件不在此列表。
+        """
+        with Session(self.db.engine) as session:
+            installed = set(session.execute(select(PluginRegistry.code)).scalars())
+        items: list[dict[str, Any]] = []
+        if not self.root.is_dir():
+            return items
+        for entry in sorted(self.root.iterdir()):
+            if not entry.is_dir() or entry.name.startswith(".") or entry.name in installed:
+                continue
+            if not (entry / MANIFEST_FILE).is_file():
+                continue
+            try:
+                manifest = load_manifest(entry)
+            except AppError as exc:
+                detail = ""
+                if isinstance(exc.data, Mapping):
+                    detail = "；".join(str(item) for item in exc.data.get("errors", []))
+                items.append(
+                    {
+                        "code": entry.name,
+                        "name": entry.name,
+                        "version": None,
+                        "error": detail or str(exc.code),
+                    }
+                )
+                continue
+            items.append(
+                {
+                    "code": manifest.code,
+                    "name": manifest.name,
+                    "version": manifest.version,
+                    "error": None,
+                }
+            )
+        return items
 
     def get(self, code: str) -> PluginSummary:
         with Session(self.db.engine) as session:
             return _summary(self._require_row(session, code))
+
+    def enabled(self) -> dict[str, Any]:
+        """已启用插件清单（登录即可读）：菜单 + 前端 ESM 入口。
+
+        只返回 `state=enabled` 的行：禁用 / 加载失败 / 未安装的插件不下发，
+        前端不会渲染其菜单，也不会尝试拉取不存在的资源。
+        """
+        with Session(self.db.engine) as session:
+            rows = list(
+                session.execute(
+                    select(PluginRegistry)
+                    .where(PluginRegistry.state == STATE_ENABLED)
+                    .order_by(PluginRegistry.code)
+                ).scalars()
+            )
+        items = [
+            {
+                "code": row.code,
+                "name": row.name,
+                "version": row.plugin_version,
+                "menu": [dict(item) for item in _loads(row.menu, [])],
+                "entry_web": row.entry_web,
+                "entry_web_url": (
+                    f"/api/v1/plugin/{row.code}/assets/{web_asset_path(row.entry_web)}"
+                    if row.entry_web
+                    else None
+                ),
+            }
+            for row in rows
+        ]
+        return {"items": items, "total": len(items)}
+
+    def asset(self, code: str, subpath: str) -> tuple[bytes, str]:
+        """读取已启用插件的前端资源（`<plugin_dir>/web/<subpath>`）。
+
+        安全口径：插件未加载（禁用/失败/未安装）一律 404；只允许 `web/` 目录内的
+        代码/样式/字体类后缀；解析后必须仍在 `web/` 内（防目录穿越与符号链接逃逸）。
+        """
+        with self._lock:
+            loaded = self._loaded.get(code)
+        if loaded is None:
+            raise AppError(PLUGIN_NOT_FOUND, data={"code": code})
+
+        parts = Path(subpath.replace("\\", "/")).parts
+        if not parts or any(part in ("", ".", "..") for part in parts):
+            raise AppError(NOT_FOUND, data={"code": code, "path": subpath})
+        media_type = ASSET_MEDIA_TYPES.get(Path(subpath).suffix.lower())
+        if media_type is None:
+            raise AppError(NOT_FOUND, data={"code": code, "path": subpath})
+
+        web_root = (self.plugin_dir(code) / WEB_ROOT).resolve()
+        target = (web_root / Path(*parts)).resolve()
+        if not target.is_relative_to(web_root) or not target.is_file():
+            raise AppError(NOT_FOUND, data={"code": code, "path": subpath})
+        return target.read_bytes(), media_type
 
     # ── 生命周期 ──────────────────────────────────────────────────────
 
@@ -213,6 +334,7 @@ class PluginService:
                         core_api_min=manifest.core_api_min,
                         table_prefix=manifest.table_prefix,
                         entry_server=manifest.entry_server,
+                        entry_web=manifest.entry_web,
                         schema_rev=head,
                         manifest_hash=manifest_hash(plugin_dir),
                         supported_modes=_json(list(manifest.supported_modes)),
@@ -230,6 +352,7 @@ class PluginService:
                     row.core_api_min = manifest.core_api_min
                     row.table_prefix = manifest.table_prefix
                     row.entry_server = manifest.entry_server
+                    row.entry_web = manifest.entry_web
                     row.schema_rev = head
                     row.manifest_hash = manifest_hash(plugin_dir)
                     row.supported_modes = _json(list(manifest.supported_modes))

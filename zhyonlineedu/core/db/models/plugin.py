@@ -41,6 +41,8 @@ class PluginRegistry(VersionedMixin, Base):
     core_api_min: Mapped[str] = mapped_column(String(16), nullable=False)
     table_prefix: Mapped[str] = mapped_column(String(64), nullable=False)
     entry_server: Mapped[str] = mapped_column(String(255), nullable=False)
+    # 前端 ESM 入口（`web/` 下的相对路径，可省略）；供应 `/plugin/<code>/assets/...` 与菜单渲染
+    entry_web: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # 插件独立迁移链当前 revision（未跑迁移为 NULL）
     schema_rev: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # manifest 原文 sha256：升级/篡改检测与审计回溯

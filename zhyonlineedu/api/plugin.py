@@ -14,6 +14,7 @@ from flask import Blueprint, Response, current_app
 
 from zhyonlineedu.api.schemas import (
     PluginDispatchOut,
+    PluginEnabledListOut,
     PluginListOut,
     PluginOut,
     PluginUninstallOut,
@@ -109,6 +110,42 @@ def uninstall_plugin(code: str) -> tuple[Response, int]:
     user = authenticate_request()
     _service().uninstall(code, operator_id=user.id)
     return ok({"code": code, "uninstalled": True})
+
+
+@bp.get("/plugins")
+@documented(
+    "已启用插件清单",
+    description=(
+        "登录即可读：只返回 `state=enabled` 的插件，含菜单与前端 ESM 入口地址，"
+        "供前端渲染插件菜单并动态 `import()`；禁用 / 失败 / 未安装的插件不出现在结果里。"
+    ),
+    response=PluginEnabledListOut,
+    tags=("plugin",),
+)
+def list_enabled_plugins() -> tuple[Response, int]:
+    authenticate_request()
+    return ok(_service().enabled())
+
+
+@bp.get("/plugin/<code>/assets/<path:subpath>")
+@documented(
+    "插件前端资源",
+    description=(
+        "读取已启用插件 `<plugin_dir>/web/<subpath>` 下的前端资源（ESM / CSS / 字体）。"
+        "插件未启用一律 404；只放行代码/样式/字体类后缀，路径解析后必须仍在 `web/` 内。"
+        "**免鉴权**：资源是插件代码而非业务数据，业务数据必须走 `/api/v1/plugin/<code>/...`。"
+    ),
+    auth=False,
+    media_type="application/octet-stream",
+    tags=("plugin",),
+)
+def plugin_asset(code: str, subpath: str) -> Response:
+    payload, media_type = _service().asset(code, subpath)
+    response = Response(payload, status=200, content_type=media_type)
+    # 插件升级/禁用后不得命中旧代码：不缓存，且禁止 MIME 嗅探
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
 
 
 @bp.route("/plugin/<code>/<path:subpath>", methods=METHODS)

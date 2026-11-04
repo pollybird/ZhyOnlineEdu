@@ -131,6 +131,8 @@ EXPECTED_PATHS: dict[str, set[str]] = {
     "/api/v1/system/plugins/{code}/install": {"post"},
     "/api/v1/system/plugins/{code}/enable": {"post"},
     "/api/v1/system/plugins/{code}/disable": {"post"},
+    "/api/v1/plugins": {"get"},
+    "/api/v1/plugin/{code}/assets/{subpath}": {"get"},
     "/api/v1/plugin/{code}/{subpath}": {"get", "post", "put", "patch", "delete"},
     "/api/v1/member/levels": {"get", "post"},
     "/api/v1/member/offers": {"get"},
@@ -149,6 +151,7 @@ RAW_PATHS = {
     "/api/v1/media/playlist/{kid}/{profile}/index.m3u8": "application/vnd.apple.mpegurl",
     "/api/v1/media/key/{kid}": "application/octet-stream",
     "/api/v1/media/seg/{kid}/{profile}/{name}": "video/mp2t",
+    "/api/v1/plugin/{code}/assets/{subpath}": "application/octet-stream",
 }
 PROTECTED = {
     ("/api/v1/auth/password", "patch"),
@@ -219,6 +222,7 @@ PROTECTED = {
     ("/api/v1/system/plugins/{code}/install", "post"),
     ("/api/v1/system/plugins/{code}/enable", "post"),
     ("/api/v1/system/plugins/{code}/disable", "post"),
+    ("/api/v1/plugins", "get"),
     ("/api/v1/plugin/{code}/{subpath}", "get"),
     ("/api/v1/plugin/{code}/{subpath}", "post"),
     ("/api/v1/plugin/{code}/{subpath}", "put"),

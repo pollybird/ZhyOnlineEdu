@@ -213,6 +213,7 @@ def _write_plugin(
     server: str = SERVER_SOURCE,
     migrations: dict[str, str] | None = None,
     entry: str = "server.py",
+    web: dict[str, str] | None = None,
 ) -> Path:
     plugin_dir = root / code
     plugin_dir.mkdir(parents=True, exist_ok=True)
@@ -225,6 +226,10 @@ def _write_plugin(
         migrations_dir = plugin_dir / "migrations"
         migrations_dir.mkdir(exist_ok=True)
         (migrations_dir / name).write_text(source, encoding="utf-8")
+    for name, content in (web or {}).items():
+        target = plugin_dir / "web" / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
     return plugin_dir
 
 
@@ -722,3 +727,183 @@ def test_manifest_capabilities_v2_snapshot_is_false_only() -> None:
     )
     assert dict(manifest.capabilities_v2) == {"db_ddl": False, "progress_direct_write": False}
     assert manifest.table_prefix == f"plg_{PLUGIN_CODE}_"
+
+
+# ── M3.5：前端 ESM 接入（entry_web / 菜单 / 静态资源）────────────────────────
+
+WEB_INDEX = "export default { pages: {} }\n"
+
+
+def _setup_web(tmp_path: Path) -> tuple[Config, Path]:
+    plugin_root = tmp_path / "plugins"
+    plugin_root.mkdir()
+    plugin_dir = _write_plugin(
+        plugin_root,
+        PLUGIN_CODE,
+        manifest=_manifest(
+            PLUGIN_CODE,
+            entry_web="web/index.js",
+            menu=[{"title": "插件面板", "path": "/plugin/demo", "permission": "course:edit"}],
+        ),
+        migrations={"0001_init.py": _migration_source(PLUGIN_CODE)},
+        web={"index.js": WEB_INDEX, "style.css": "body { margin: 0; }\n", "evil.py": "print(1)\n"},
+    )
+    config = _config(tmp_path, plugin_root)
+    _seed(config)
+    return config, plugin_dir
+
+
+def test_plugin_web_entry_listed_and_served(tmp_path: Path) -> None:
+    config, _ = _setup_web(tmp_path)
+    client = _client(config)
+    admin = _login(client, "root")
+    student = _login(client, "student")
+    base = f"/api/v1/system/plugins/{PLUGIN_CODE}"
+
+    installed = client.post(f"{base}/install", headers=admin)
+    assert installed.status_code == 200, installed.get_json()
+    assert installed.get_json()["data"]["entry_web"] == "web/index.js"
+
+    # 未启用：清单不下发（禁用即不可见），资源 404
+    assert client.get("/api/v1/plugins", headers=student).get_json()["data"]["items"] == []
+    assert client.get(f"/api/v1/plugin/{PLUGIN_CODE}/assets/index.js").status_code == 404
+
+    client.post(f"{base}/enable", headers=admin)
+
+    # 清单需登录（业务数据），匿名 401
+    anonymous = client.get("/api/v1/plugins")
+    assert anonymous.status_code == 401
+    assert anonymous.get_json()["code"] == AUTH_TOKEN_EXPIRED
+
+    listed = client.get("/api/v1/plugins", headers=student)
+    assert listed.status_code == 200, listed.get_json()
+    payload = listed.get_json()["data"]
+    assert payload["total"] == 1
+    item = payload["items"][0]
+    assert item["code"] == PLUGIN_CODE
+    assert item["entry_web"] == "web/index.js"
+    assert item["entry_web_url"] == f"/api/v1/plugin/{PLUGIN_CODE}/assets/index.js"
+    assert item["menu"] == [
+        {"title": "插件面板", "path": "/plugin/demo", "permission": "course:edit"}
+    ]
+
+    # 资源免鉴权（浏览器 import() 带不了 Authorization），但只放行 web/ 内白名单后缀
+    script = client.get(item["entry_web_url"])
+    assert script.status_code == 200
+    assert script.headers["Content-Type"].startswith("text/javascript")
+    assert script.headers["Cache-Control"] == "no-store, max-age=0"
+    assert script.headers["X-Content-Type-Options"] == "nosniff"
+    assert script.get_data(as_text=True) == WEB_INDEX
+
+    css = client.get(f"/api/v1/plugin/{PLUGIN_CODE}/assets/style.css")
+    assert css.status_code == 200
+    assert css.headers["Content-Type"].startswith("text/css")
+
+    # 非前端后缀 / 目录穿越 / 资源缺失一律 404
+    assert client.get(f"/api/v1/plugin/{PLUGIN_CODE}/assets/evil.py").status_code == 404
+    assert client.get(f"/api/v1/plugin/{PLUGIN_CODE}/assets/..%2Fserver.py").status_code == 404
+    assert client.get(f"/api/v1/plugin/{PLUGIN_CODE}/assets/missing.js").status_code == 404
+
+    # 分发入口未被资源路由遮蔽
+    served = client.get(f"/api/v1/plugin/{PLUGIN_CODE}/hello", headers=student)
+    assert served.status_code == 200, served.get_json()
+
+    # 禁用后：清单消失、资源 404（不残留）
+    client.post(f"{base}/disable", headers=admin)
+    assert client.get("/api/v1/plugins", headers=student).get_json()["data"]["items"] == []
+    assert client.get(f"/api/v1/plugin/{PLUGIN_CODE}/assets/index.js").status_code == 404
+
+
+def test_plugin_web_entry_file_must_exist(tmp_path: Path) -> None:
+    plugin_root = tmp_path / "plugins"
+    plugin_root.mkdir()
+    _write_plugin(
+        plugin_root,
+        PLUGIN_CODE,
+        manifest=_manifest(PLUGIN_CODE, entry_web="web/index.js"),
+    )
+    config = _config(tmp_path, plugin_root)
+    _seed(config)
+    client = _client(config)
+    admin = _login(client, "root")
+
+    response = client.post(f"/api/v1/system/plugins/{PLUGIN_CODE}/install", headers=admin)
+    assert response.status_code == 422
+    assert response.get_json()["code"] == PLUGIN_MANIFEST_INVALID
+    assert _registry(config, PLUGIN_CODE) is None
+
+
+@pytest.mark.parametrize(
+    "entry_web",
+    [
+        "index.js",  # 不在 web/ 下
+        "web/index.ts",  # 非 ESM 后缀
+        "web/index.py",  # 代码文件不可当资源
+        "../web/index.js",  # 目录穿越
+        "/web/index.js",  # 绝对路径
+        "web",  # 不是文件
+    ],
+)
+def test_manifest_entry_web_must_be_under_web(entry_web: str) -> None:
+    with pytest.raises(AppError) as exc:
+        validate_manifest(_manifest(PLUGIN_CODE, entry_web=entry_web))
+    assert exc.value.code == PLUGIN_MANIFEST_INVALID
+
+
+@pytest.mark.parametrize(
+    "menu",
+    [
+        [{"title": ""}],
+        [{"path": "/plugin/demo"}],  # 缺 title
+        [{"title": "相对路径", "path": "plugin/demo"}],
+        [{"title": "穿越路径", "path": "/../etc/passwd"}],
+        [{"title": "非法权限码", "permission": "ROOT"}],
+    ],
+)
+def test_manifest_menu_entries_are_validated(menu: list[dict[str, Any]]) -> None:
+    with pytest.raises(AppError) as exc:
+        validate_manifest(_manifest(PLUGIN_CODE, menu=menu))
+    assert exc.value.code == PLUGIN_MANIFEST_INVALID
+
+
+def test_manifest_without_entry_web_is_allowed() -> None:
+    manifest = validate_manifest(_manifest(PLUGIN_CODE))
+    assert manifest.entry_web is None
+
+
+# ── M3.6：管理端插件列表（含「可安装」扫描）────────────────────────────────
+
+
+def test_plugin_list_reports_installable_plugins(tmp_path: Path) -> None:
+    config, _ = _setup(tmp_path)
+    client = _client(config)
+    admin = _login(client, "root")
+
+    payload = client.get("/api/v1/system/plugins", headers=admin).get_json()["data"]
+    assert payload["total"] == 0
+    available = {item["code"]: item for item in payload["available"]}
+    assert available[PLUGIN_CODE]["version"] == "1.0.0"
+    assert available[PLUGIN_CODE]["error"] is None
+
+    client.post(f"/api/v1/system/plugins/{PLUGIN_CODE}/install", headers=admin)
+    payload = client.get("/api/v1/system/plugins", headers=admin).get_json()["data"]
+    assert payload["total"] == 1
+    assert PLUGIN_CODE not in {item["code"] for item in payload["available"]}
+    assert OTHER_CODE in {item["code"] for item in payload["available"]}
+
+
+def test_plugin_list_surfaces_broken_manifest(tmp_path: Path) -> None:
+    plugin_root = tmp_path / "plugins"
+    plugin_root.mkdir()
+    broken = plugin_root / "badplug"
+    broken.mkdir()
+    (broken / "manifest.json").write_text("{not json}", encoding="utf-8")
+    config = _config(tmp_path, plugin_root)
+    _seed(config)
+    client = _client(config)
+    admin = _login(client, "root")
+
+    payload = client.get("/api/v1/system/plugins", headers=admin).get_json()["data"]
+    entry = next(item for item in payload["available"] if item["code"] == "badplug")
+    assert entry["error"]
+    assert entry["version"] is None

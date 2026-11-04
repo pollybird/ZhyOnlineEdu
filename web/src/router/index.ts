@@ -96,6 +96,18 @@ export const router = createRouter({
           component: () => import('../views/AdminMemberView.vue'),
           meta: { permission: 'member:manage' },
         },
+        {
+          path: 'admin/plugins',
+          name: 'admin-plugins',
+          component: () => import('../views/AdminPluginsView.vue'),
+          meta: { permission: 'system:manage' },
+        },
+        {
+          // 插件前端页面（M3.5）：`/plugin/<code>/<subpath>`，由插件 ESM 模块自行渲染
+          path: 'plugin/:code/:subpath(.*)*',
+          name: 'plugin-page',
+          component: () => import('../views/PluginPageView.vue'),
+        },
       ],
     },
     { path: '/:pathMatch(.*)*', redirect: '/' },

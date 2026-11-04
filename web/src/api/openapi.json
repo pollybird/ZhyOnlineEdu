@@ -4091,14 +4091,140 @@
         },
         "type": "object"
       },
+      "PluginAvailableOut": {
+        "description": "插件目录中存在但未安装的插件（`error` 非空表示 manifest 不合法）。",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Error"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Version"
+          }
+        },
+        "required": [
+          "code",
+          "name"
+        ],
+        "type": "object"
+      },
       "PluginDispatchOut": {
         "additionalProperties": true,
         "description": "插件业务响应：数据结构由插件自定义，内核只负责统一信封包裹。",
         "properties": {},
         "type": "object"
       },
+      "PluginEnabledListOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PluginEnabledOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total"
+        ],
+        "type": "object"
+      },
+      "PluginEnabledOut": {
+        "description": "已启用插件（登录即可读，供前端渲染菜单与动态加载 ESM）。",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "entry_web": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Entry Web"
+          },
+          "entry_web_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "前端可直接 import() 的地址",
+            "title": "Entry Web Url"
+          },
+          "menu": {
+            "items": {
+              "$ref": "#/components/schemas/PluginMenuOut"
+            },
+            "title": "Menu",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "name",
+          "version",
+          "menu"
+        ],
+        "type": "object"
+      },
       "PluginListOut": {
         "properties": {
+          "available": {
+            "description": "目录中存在但未安装的插件（供一键安装）",
+            "items": {
+              "$ref": "#/components/schemas/PluginAvailableOut"
+            },
+            "title": "Available",
+            "type": "array"
+          },
           "items": {
             "items": {
               "$ref": "#/components/schemas/PluginOut"
@@ -4134,7 +4260,21 @@
               }
             ],
             "default": null,
+            "description": "站内绝对路径（以 / 开头）",
             "title": "Path"
+          },
+          "permission": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "显隐所需权限码，如 course:edit",
+            "title": "Permission"
           },
           "title": {
             "title": "Title",
@@ -4169,6 +4309,19 @@
           "core_api_min": {
             "title": "Core Api Min",
             "type": "string"
+          },
+          "entry_web": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "前端 ESM 入口（web/ 下相对路径）",
+            "title": "Entry Web"
           },
           "error_message": {
             "anyOf": [
@@ -6595,7 +6748,7 @@
   "info": {
     "description": "统一信封 {code, message, data, request_id}；错误码见 x-zhy-error-codes",
     "title": "钟毓在线教育系统 API",
-    "version": "0.3.4-alpha",
+    "version": "0.3.6-alpha",
     "x-zhy-progress-anti-replay": true,
     "x-zhy-progress-version": "zhy-progress-v2"
   },
@@ -14013,6 +14166,97 @@
         "x-zhy-idempotent": true
       }
     },
+    "/api/v1/plugin/{code}/assets/{subpath}": {
+      "get": {
+        "description": "读取已启用插件 `<plugin_dir>/web/<subpath>` 下的前端资源（ESM / CSS / 字体）。插件未启用一律 404；只放行代码/样式/字体类后缀，路径解析后必须仍在 `web/` 内。**免鉴权**：资源是插件代码而非业务数据，业务数据必须走 `/api/v1/plugin/<code>/...`。",
+        "operationId": "plugin.plugin_asset.get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "subpath",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "binary"
+                }
+              }
+            },
+            "description": "原始响应（不套统一信封）"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "统一失败信封"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "统一失败信封"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "统一失败信封"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "统一失败信封"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "统一失败信封"
+          }
+        },
+        "security": [],
+        "summary": "插件前端资源",
+        "tags": [
+          "plugin"
+        ]
+      }
+    },
     "/api/v1/plugin/{code}/{subpath}": {
       "delete": {
         "description": "统一入口：`/api/v1/plugin/<code>/<subpath>`。仅转发**已启用**插件且 manifest `routes` 声明过的子路径；未安装/已禁用/未声明一律 404。",
@@ -14605,6 +14849,109 @@
           }
         ],
         "summary": "插件路由分发",
+        "tags": [
+          "plugin"
+        ]
+      }
+    },
+    "/api/v1/plugins": {
+      "get": {
+        "description": "登录即可读：只返回 `state=enabled` 的插件，含菜单与前端 ESM 入口地址，供前端渲染插件菜单并动态 `import()`；禁用 / 失败 / 未安装的插件不出现在结果里。",
+        "operationId": "plugin.list_enabled_plugins.get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "integer"
+                        }
+                      ]
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/PluginEnabledListOut"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "data",
+                    "request_id"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "统一成功信封"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "统一失败信封"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "统一失败信封"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "统一失败信封"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "统一失败信封"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "统一失败信封"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "summary": "已启用插件清单",
         "tags": [
           "plugin"
         ]

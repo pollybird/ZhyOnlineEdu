@@ -2786,7 +2786,7 @@ wheels = [
 
 [[package]]
 name = "zhyonlineedu"
-version = "0.3.4a0"
+version = "0.3.6a0"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },

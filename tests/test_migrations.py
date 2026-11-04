@@ -87,7 +87,7 @@ ALL_TABLES = (
     | COMMERCE_TABLES
     | PLUGIN_TABLES
 )
-HEAD_REV = "0014_plugin_framework"
+HEAD_REV = "0015_plugin_web_entry"
 DSN_ENV = {"postgresql": "ZHY_TEST_PG_DSN", "mysql": "ZHY_TEST_MYSQL_DSN"}
 
 
