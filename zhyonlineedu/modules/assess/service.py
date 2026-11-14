@@ -45,6 +45,7 @@ from zhyonlineedu.core.db.models.quiz import (
     QUESTION_KINDS,
     QuizAttempt,
     QuizQuestion,
+    stem_hash,
 )
 from zhyonlineedu.core.db.query import not_deleted
 from zhyonlineedu.core.errors import AppError
@@ -339,6 +340,7 @@ class AssessService:
                 lesson_id=lesson.id,
                 kind=kind,
                 stem=stem,
+                stem_hash=stem_hash(stem),
                 options=_dumps(options),
                 answer=_dumps(answer),
                 explanation=explanation,
@@ -362,6 +364,7 @@ class AssessService:
                 values["kind"] = kind
             if "stem" in body:
                 values["stem"] = _text(body.get("stem"), "stem", max_len=STEM_MAX)
+                values["stem_hash"] = stem_hash(values["stem"])
             if "answer" in body or "options" in body or "kind" in body:
                 raw_options = body["options"] if "options" in body else _loads(row.options)
                 options = _options(kind, raw_options)

@@ -52,8 +52,6 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.Column("updated_at", sa.DateTime(), nullable=False),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_quiz_question")),
-        # D19a：软删复合唯一键（Base 注入同名约束）
-        sa.UniqueConstraint("lesson_id", "stem", "delete_seq", name="uq_quiz_question_no_deleted"),
     )
     op.create_index("ix_quiz_question_lesson", "quiz_question", ["lesson_id"], unique=False)
     op.create_index("ix_quiz_question_course", "quiz_question", ["course_id"], unique=False)

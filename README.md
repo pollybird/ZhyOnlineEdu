@@ -8,7 +8,7 @@ SQLite / MySQL / PostgreSQL / openGauss（5.x / 6.x / 7.0）/ KingbaseES V9 下�
 - 后端：Python 3.11 · Flask 3.1 · SQLAlchemy 2 · Alembic · PyJWT(RS256) · Argon2 · gunicorn
 - 前端：Vue 3 · TypeScript · Vite · Pinia · Element Plus · hls.js
 - 媒体：FFmpeg（bwrap / cgroup 沙箱）+ AES-128 HLS + 三层 TTL 票据
-- 当前版本：**0.3.7-alpha**（命名规则见 [版本号规则](#版本号规则)）
+- 当前版本：**0.3.9-alpha**（命名规则见 [版本号规则](#版本号规则)）
 - 许可证：Apache-2.0（见 [LICENSE](LICENSE)）
 
 ## 能力概览
@@ -133,12 +133,18 @@ cd web && npm run dev      # http://127.0.0.1:5173，/api 已代理到 127.0.0.1
 ## 测试与质量门禁
 
 ```bash
-# 后端（当前基线：382 passed / 34 skipped）
+# 后端（当前基线：455 passed / 36 skipped）
 .venv/bin/python -m pytest
 .venv/bin/python -m pytest -m hbt        # 进度网关 HBT-001~006
 .venv/bin/python -m pytest -m media      # 票据与播放 MEDIA-001~008
 .venv/bin/python -m pytest -m dialect    # 方言矩阵
 .venv/bin/python -m pytest -m sandbox    # 转码沙箱 SANDBOX-001~006
+
+# 三库回归（真实 PostgreSQL / MySQL；未设置 DSN 的库自动跳过）
+ZHY_TEST_PG_DSN='postgresql+psycopg://zhy:zhy@127.0.0.1:5432/zhy' \
+ZHY_TEST_MYSQL_DSN='mysql+pymysql://root:root@127.0.0.1:3306/zhy?charset=utf8mb4' \
+.venv/bin/python -m pytest tests/test_migrations.py tests/test_dialect_matrix.py \
+  tests/test_upsert.py tests/test_install.py tests/test_probe.py tests/test_plugin_multidb.py
 
 # 静态检查与红线
 .venv/bin/ruff check zhyonlineedu tests scripts
@@ -197,12 +203,13 @@ FFmpeg 沙箱资产见 `deploy/ffmpeg/`（`bwrap-launcher.sh`、`seccomp.json`�
 | 完成 M2.15 | `0.2.15-alpha` |
 | 完成 M3.4 | `0.3.4-alpha` |
 | 完成 M3.6 | `0.3.6-alpha` |
-| 完成 M3.7 | `0.3.7-alpha`（当前） |
+| 完成 M3.7 | `0.3.7-alpha` |
+| 完成 M3.9（M3 收尾） | `0.3.9-alpha`（当前） |
 | 进入 Beta 阶段 | `0.4.0-beta` |
 | 正式发布 | `1.0.0` |
 
 - **唯一来源**：`zhyonlineedu/__init__.py` 的 `__version__`。`pyproject.toml`（PEP 440 归一为
-  `0.3.7a0`）、`uv.lock`（项目自身条目）、`web/package.json`、`web/package-lock.json`、
+  `0.3.9a0`）、`uv.lock`（项目自身条目）、`web/package.json`、`web/package-lock.json`、
   `web/src/api/openapi.json` 必须同步，禁止在代码里散落版本字符串。
 - **改版本号的顺序**：改 `__version__` 与 `pyproject.toml` → `uv lock`（重算 `uv.lock` 项目版本）
   → 改前端两处 → `scripts/export_openapi.py` 重新生成 → `scripts/check_version.py`。漏掉 `uv lock`
@@ -211,12 +218,12 @@ FFmpeg 沙箱资产见 `deploy/ffmpeg/`（`bwrap-launcher.sh`、`seccomp.json`�
   作业与 `pre-commit` 均执行；OpenAPI 规格的 `info.version` 由 `scripts/export_openapi.py` 从
   `__version__` 生成。
 - **运行时暴露**：`GET /healthz` 与 `GET /api/v1/openapi.json` 返回同一版本号；镜像与部署用
-  `ZHY_VERSION`（`docker-compose.yml` 默认 `dev`，发版时传 `0.3.7-alpha`）保持同一标签。
+  `ZHY_VERSION`（`docker-compose.yml` 默认 `dev`，发版时传 `0.3.9-alpha`）保持同一标签。
 
 ## 当前进度
 
 M0（技术验证）~ M2（安装、课程、媒体、播放、进度、题库、会员、双模式与学员/管理端）已完成并
-通过 HBT-001~006 与 MEDIA-001~008 用例；M2.16 压测窗口已收尾。M3.1~3.7（插件 manifest / 生命周期
-/ 独立迁移链 / SDK 收窄 / 前端 ESM 接入 / 插件管理页 / 事件总线与参考插件）已完成，当前版本
-**0.3.7-alpha**。M3 剩余 3.8~3.9 进入后续联调。
+通过 HBT-001~006 与 MEDIA-001~008 用例；M2.16 压测窗口已收尾。M3 全部完成（插件 manifest /
+生命周期 / 独立迁移链 / SDK 收窄 / 前端 ESM 接入 / 插件管理页 / 事件总线与参考插件 / 全链路联调
+与三库回归），当前版本 **0.3.9-alpha**。
 实测记录、缺陷与修复过程见 [`spike/RESULTS.md`](spike/RESULTS.md)。

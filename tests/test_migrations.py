@@ -87,7 +87,7 @@ ALL_TABLES = (
     | COMMERCE_TABLES
     | PLUGIN_TABLES
 )
-HEAD_REV = "0015_plugin_web_entry"
+HEAD_REV = "0016_quiz_stem_hash"
 DSN_ENV = {"postgresql": "ZHY_TEST_PG_DSN", "mysql": "ZHY_TEST_MYSQL_DSN"}
 
 

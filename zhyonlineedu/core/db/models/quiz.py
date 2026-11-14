@@ -11,7 +11,9 @@
 
 from __future__ import annotations
 
+import hashlib
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import Boolean, Index, Integer, Numeric, String, Text, false
 from sqlalchemy.orm import Mapped, mapped_column
@@ -22,6 +24,16 @@ from ..types import SoftDeleteMixin, UTCDatetime, VersionedMixin
 
 def utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+def stem_hash(stem: str) -> str:
+    """题干摘要：TEXT 不能直接进唯一键（MySQL 要求前缀长度且不可靠），改存 64 位 sha256。"""
+    return hashlib.sha256(stem.strip().encode("utf-8")).hexdigest()
+
+
+def _default_stem_hash(context: Any) -> str:
+    params = context.get_current_parameters()
+    return stem_hash(str(params.get("stem", "")))
 
 
 QUESTION_KINDS = ("single", "multiple", "judge")
@@ -36,8 +48,8 @@ class QuizQuestion(SoftDeleteMixin, VersionedMixin, Base):
     """
 
     __tablename__ = "quiz_question"
-    # D19a：软删唯一键 (lesson_id, stem, delete_seq)，避免同课时同题干重复录题
-    __soft_delete_uq__ = ("lesson_id", "stem")
+    # D19a：软删唯一键 (lesson_id, stem_hash, delete_seq)，避免同课时同题干重复录题
+    __soft_delete_uq__ = ("lesson_id", "stem_hash")
     __table_args__ = (
         Index("ix_quiz_question_lesson", "lesson_id"),
         Index("ix_quiz_question_course", "course_id"),
@@ -51,6 +63,13 @@ class QuizQuestion(SoftDeleteMixin, VersionedMixin, Base):
         String(16), nullable=False, default="single", server_default="single"
     )
     stem: Mapped[str] = mapped_column(Text, nullable=False)
+    # 题干摘要：唯一键成员（TEXT 不能跨库索引），由模型默认值/服务层随 stem 同步
+    stem_hash: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        default=_default_stem_hash,
+        server_default="",
+    )
     options: Mapped[str] = mapped_column(Text, nullable=False)
     answer: Mapped[str] = mapped_column(Text, nullable=False)
     explanation: Mapped[str | None] = mapped_column(Text, nullable=True)

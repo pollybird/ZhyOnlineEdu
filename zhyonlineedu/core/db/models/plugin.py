@@ -49,17 +49,13 @@ class PluginRegistry(VersionedMixin, Base):
     manifest_hash: Mapped[str] = mapped_column(
         String(64), nullable=False, default="", server_default=""
     )
-    supported_modes: Mapped[str] = mapped_column(
-        Text, nullable=False, default="[]", server_default="[]"
-    )
-    capabilities: Mapped[str] = mapped_column(
-        Text, nullable=False, default="[]", server_default="[]"
-    )
-    capabilities_v2: Mapped[str] = mapped_column(
-        Text, nullable=False, default="{}", server_default="{}"
-    )
-    routes: Mapped[str] = mapped_column(Text, nullable=False, default="[]", server_default="[]")
-    menu: Mapped[str] = mapped_column(Text, nullable=False, default="[]", server_default="[]")
+    # JSON 文本列不设 server_default：MySQL 禁止 BLOB/TEXT 带默认值（1101），
+    # 写入路径（安装/更新）始终显式提供，Python 侧 default 足够。
+    supported_modes: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    capabilities: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    capabilities_v2: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    routes: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    menu: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     error_message: Mapped[str | None] = mapped_column(String(255), nullable=True)
     installed_at: Mapped[datetime] = mapped_column(UTCDatetime, nullable=False, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(UTCDatetime, nullable=False, default=utcnow)
