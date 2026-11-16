@@ -9,6 +9,12 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# 依赖下载走 uv.lock 中固定的清华镜像，runner 侧偶发 429/超时时放宽重试与超时，
+# 避免下载抖动把门禁误判为红。
+env:
+  UV_HTTP_TIMEOUT: "60"
+  UV_HTTP_RETRIES: "10"
+
 jobs:
   quality:
     runs-on: ubuntu-latest
