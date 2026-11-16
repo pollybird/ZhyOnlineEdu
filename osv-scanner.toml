@@ -1,27 +1,28 @@
 # OSV-Scanner 例外登记（§13.3 供应链安全）
-# 仅登记开发期工具链漏洞：black / pytest 不进入运行镜像与离线 wheelhouse。
+# 仅登记开发期工具链漏洞：black / pytest / 前端构建链不进运行镜像与离线 wheelhouse。
 # 生产依赖（cryptography / boto3 / gunicorn / PyJWT 等）不得在此登记例外。
-# ignoreUntil 到期后 CI 会重新报警，到期前必须升级或重新评估。
+# 配置默认只作用于同目录的锁文件，CI 用 `--config=./osv-scanner.toml` 应用到全部锁文件；
+# effectiveUntil 到期后 CI 会重新报警，到期前必须升级或重新评估。
 
 [[IgnoredVulns]]
 id = "PYSEC-2026-2120"
-reason = "black 仅开发期格式化工具，不随运行镜像分发；升级窗口见 ignoreUntil"
-ignoreUntil = 2027-06-30
+reason = "black 仅开发期格式化工具，不随运行镜像分发；升级窗口见 effectiveUntil"
+effectiveUntil = 2027-06-30
 
 [[IgnoredVulns]]
 id = "PYSEC-2026-2121"
-reason = "black 仅开发期格式化工具，不随运行镜像分发；升级窗口见 ignoreUntil"
-ignoreUntil = 2027-06-30
+reason = "black 仅开发期格式化工具，不随运行镜像分发；升级窗口见 effectiveUntil"
+effectiveUntil = 2027-06-30
 
 [[IgnoredVulns]]
 id = "CVE-2026-114134"
-reason = "black 仅开发期格式化工具，不随运行镜像分发；升级窗口见 ignoreUntil"
-ignoreUntil = 2027-06-30
+reason = "black 仅开发期格式化工具，不随运行镜像分发；升级窗口见 effectiveUntil"
+effectiveUntil = 2027-06-30
 
 [[IgnoredVulns]]
 id = "PYSEC-2026-1845"
-reason = "pytest 仅开发期测试工具，不随运行镜像分发；升级窗口见 ignoreUntil"
-ignoreUntil = 2027-06-30
+reason = "pytest 仅开发期测试工具，不随运行镜像分发；升级窗口见 effectiveUntil"
+effectiveUntil = 2027-06-30
 
 # ── npm（web/package-lock.json，仅构建/测试工具链的传递依赖）──
 # glob / minimatch 由 js-beautify → editorconfig 链引入，只参与前端构建与单测，
@@ -29,10 +30,9 @@ ignoreUntil = 2027-06-30
 [[IgnoredVulns]]
 id = "GHSA-3g3m-2fjr-6pw4"
 reason = "glob 13 为前端构建工具链传递依赖，不进 dist；等 js-beautify 升级后再移除"
-ignoreUntil = 2027-06-30
+effectiveUntil = 2027-06-30
 
 [[IgnoredVulns]]
 id = "GHSA-g3hv-75wg-m249"
 reason = "minimatch 10 为前端构建工具链传递依赖，不进 dist；等 js-beautify 升级后再移除"
-ignoreUntil = 2027-06-30
-
+effectiveUntil = 2027-06-30

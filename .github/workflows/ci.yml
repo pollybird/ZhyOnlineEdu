@@ -127,12 +127,14 @@ jobs:
             --ignore-vuln CVE-2026-114134 \
             --ignore-vuln PYSEC-2026-1845
       # FFmpeg 与 PyPI 分开扫描：uv.lock + deploy/ffmpeg/zhy-ffmpeg-sbom.json
-      # 例外项在同目录 osv-scanner.toml 中登记（仅开发期工具链）。
+      # 例外项在根目录 osv-scanner.toml 中登记（仅开发期工具链）。配置文件默认
+      # 只作用于同目录锁文件，这里显式 --config 使其覆盖 web/package-lock.json。
       - name: osv-scanner（uv.lock + FFmpeg SBOM）
         uses: google/osv-scanner-action/osv-scanner-action@v2.7.1
         with:
           scan-args: |-
             --recursive
+            --config=./osv-scanner.toml
             ./
 
   gate:
