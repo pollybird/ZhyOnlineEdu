@@ -6748,7 +6748,7 @@
   "info": {
     "description": "统一信封 {code, message, data, request_id}；错误码见 x-zhy-error-codes",
     "title": "钟毓在线教育系统 API",
-    "version": "0.3.9-alpha",
+    "version": "0.4.1-alpha",
     "x-zhy-progress-anti-replay": true,
     "x-zhy-progress-version": "zhy-progress-v2"
   },
@@ -10238,7 +10238,7 @@
     },
     "/api/v1/learn/progress": {
       "post": {
-        "description": "HTTP 202 + code=202：网关分配 gw_seq 并追加 learn_progress_log（事实源），响应到达即表示已落盘；同一 30s 桶重复上报只计一次（deduped=true）。投影表由单写者 worker 落库，HTTP 路径不写 learn_progress。",
+        "description": "HTTP 202 + code=202：网关分配 gw_seq 并追加 learn_progress_log（事实源），响应到达即表示已落盘；同一 30s 桶重复上报只计一次（deduped=true）。投影表由单写者 worker 落库，HTTP 路径不写 learn_progress。接口级配额 2 次/分钟/课时，超限返回 429 RATE_LIMITED（data.retry_after）。",
         "operationId": "playback.report_progress.post",
         "requestBody": {
           "content": {

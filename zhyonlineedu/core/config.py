@@ -97,6 +97,15 @@ KEY_SPECS: tuple[ConfigKey, ...] = (
         minimum=1,
         maximum=100,
     ),
+    # 接口级滑动窗口配额（§13.3 S-PROGRESS）：每用户每课时 2 次/分钟；0 表示关闭。
+    ConfigKey(
+        "progress.rate_limit_per_min",
+        "ZHY_PROGRESS_RATE_LIMIT_PER_MIN",
+        Kind.INT,
+        hot=True,
+        minimum=0,
+        maximum=600,
+    ),
     ConfigKey("redis.url", "ZHY_REDIS_URL", Kind.STR, secret=True),
     ConfigKey("quiz.pass_score", "ZHY_QUIZ_PASS_SCORE", Kind.INT, hot=True, minimum=0, maximum=100),
     # 双模式（M2.10）：切换后全站生效 ≤ cache_ttl_sec；切换窗口内 preview 流水隔离

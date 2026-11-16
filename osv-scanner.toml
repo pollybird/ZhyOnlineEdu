@@ -1,0 +1,24 @@
+# OSV-Scanner 例外登记（§13.3 供应链安全）
+# 仅登记开发期工具链漏洞：black / pytest 不进入运行镜像与离线 wheelhouse。
+# 生产依赖（cryptography / boto3 / gunicorn / PyJWT 等）不得在此登记例外。
+# ignoreUntil 到期后 CI 会重新报警，到期前必须升级或重新评估。
+
+[[IgnoredVulns]]
+id = "PYSEC-2026-2120"
+reason = "black 仅开发期格式化工具，不随运行镜像分发；升级窗口见 ignoreUntil"
+ignoreUntil = 2027-06-30
+
+[[IgnoredVulns]]
+id = "PYSEC-2026-2121"
+reason = "black 仅开发期格式化工具，不随运行镜像分发；升级窗口见 ignoreUntil"
+ignoreUntil = 2027-06-30
+
+[[IgnoredVulns]]
+id = "CVE-2026-114134"
+reason = "black 仅开发期格式化工具，不随运行镜像分发；升级窗口见 ignoreUntil"
+ignoreUntil = 2027-06-30
+
+[[IgnoredVulns]]
+id = "PYSEC-2026-1845"
+reason = "pytest 仅开发期测试工具，不随运行镜像分发；升级窗口见 ignoreUntil"
+ignoreUntil = 2027-06-30

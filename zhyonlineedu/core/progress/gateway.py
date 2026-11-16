@@ -15,9 +15,10 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import math
 import time
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, NoReturn
 
 from sqlalchemy import func, select, update
@@ -50,6 +51,8 @@ GW_SEQ_RETRY = 3
 MAX_PLAYED_SEC = 3600
 SPEED_MIN_BPS = 50
 SPEED_MAX_BPS = 300
+# 接口级滑动窗口配额（§13.3 S-PROGRESS）：统一按 60s 窗口统计已落库流水。
+QUOTA_WINDOW_SEC = 60
 
 
 def _fail(message: str) -> NoReturn:
@@ -90,6 +93,51 @@ class ProgressGateway:
         return self._db
 
     # ── 上报 ──────────────────────────────────────────────────────────────
+
+    def check_quota(
+        self,
+        *,
+        user_id: int,
+        lesson_id: int,
+        now: datetime | None = None,
+    ) -> None:
+        """接口级滑动窗口配额：每用户每课时 `progress.rate_limit_per_min` 次/分钟。
+
+        统计源为已落库的 `learn_progress_log`（多 worker 共享口径），超限抛
+        `429 RATE_LIMITED` 并给出 `retry_after`。0 表示关闭。
+        """
+        limit = self.config.get_int("progress.rate_limit_per_min")
+        if limit <= 0:
+            return
+        moment = now or utcnow()
+        cutoff = moment - timedelta(seconds=QUOTA_WINDOW_SEC)
+        with Session(self.db.engine) as session:
+            count, oldest = session.execute(
+                select(
+                    func.count(LearnProgressLog.id),
+                    func.min(LearnProgressLog.received_at),
+                ).where(
+                    LearnProgressLog.user_id == user_id,
+                    LearnProgressLog.lesson_id == lesson_id,
+                    LearnProgressLog.received_at >= cutoff,
+                )
+            ).one()
+        if int(count or 0) < limit:
+            return
+        retry_after = QUOTA_WINDOW_SEC
+        if oldest is not None:
+            if oldest.tzinfo is None:
+                oldest = oldest.replace(tzinfo=UTC)
+            elapsed = (moment - oldest).total_seconds()
+            retry_after = max(1, min(QUOTA_WINDOW_SEC, math.ceil(QUOTA_WINDOW_SEC - elapsed)))
+        raise AppError(
+            Code.RATE_LIMITED,
+            data={
+                "retry_after": retry_after,
+                "scope": "progress:upsert",
+                "lesson_id": lesson_id,
+            },
+        )
 
     def record(
         self,

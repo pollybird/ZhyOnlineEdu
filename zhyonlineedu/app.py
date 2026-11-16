@@ -121,6 +121,9 @@ def _assign_request_id() -> None:
 def _finalize_response(response: Response) -> Response:
     request_id = str(getattr(g, "request_id", "") or resolve_request_id(None))
     response.headers[ZHY_HEADER_REQUEST_ID] = request_id
+    # 安全基线（§13.3）：禁止 MIME 嗅探；ksession/nonce/sig 不随 Referer 外泄。
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
     started = getattr(g, "request_started", None)
     duration_ms = (time.perf_counter() - started) * 1000 if isinstance(started, float) else 0.0
     current_app.logger.info(

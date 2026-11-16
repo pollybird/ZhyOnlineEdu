@@ -29,6 +29,8 @@ lease_ttl_sec = 30
 bus = "local"
 recovery_max_gap = 10000
 completion_threshold = 90
+# 接口级滑动窗口配额（§13.3 S-PROGRESS）：每用户每课时 2 次/分钟；0 表示关闭。
+rate_limit_per_min = 2
 
 [redis]
 url = ""

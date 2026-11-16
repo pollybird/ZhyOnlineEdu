@@ -97,9 +97,41 @@ jobs:
           tests/test_plugin_multidb.py
           -q
 
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: uv sync --frozen --group dev
+      # 生产依赖必须零已知漏洞；仅对开发期工具链（black/pytest）登记例外，
+      # 它们不进入运行镜像，升级窗口见 osv-scanner.toml 的 ignoreUntil。
+      - name: pip-audit（PyPI 依赖）
+        run: |
+          uv run pip-audit --vulnerability-service osv \
+            --ignore-vuln PYSEC-2026-2120 \
+            --ignore-vuln PYSEC-2026-2121 \
+            --ignore-vuln CVE-2026-114134 \
+            --ignore-vuln PYSEC-2026-1845
+      # FFmpeg 与 PyPI 分开扫描：uv.lock + deploy/ffmpeg/zhy-ffmpeg-sbom.json
+      # 例外项在同目录 osv-scanner.toml 中登记（仅开发期工具链）。
+      - name: osv-scanner（uv.lock + FFmpeg SBOM）
+        uses: google/osv-scanner-action/osv-scanner-action@v2
+        with:
+          scan-args: |-
+            -r
+            ./
+
   gate:
     if: always()
-    needs: [quality, web, db]
+    needs: [quality, web, db, security]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -108,6 +140,8 @@ jobs:
           echo "quality=${{ needs.quality.result }}"
           echo "web=${{ needs.web.result }}"
           echo "db=${{ needs.db.result }}"
+          echo "security=${{ needs.security.result }}"
           test "${{ needs.quality.result }}" = "success"
           test "${{ needs.web.result }}" = "success"
           test "${{ needs.db.result }}" = "success"
+          test "${{ needs.security.result }}" = "success"

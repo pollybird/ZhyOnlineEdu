@@ -206,6 +206,7 @@ def media_segment(kid: str, profile: str, name: str) -> Response:
         "HTTP 202 + code=202：网关分配 gw_seq 并追加 learn_progress_log（事实源），"
         "响应到达即表示已落盘；同一 30s 桶重复上报只计一次（deduped=true）。"
         "投影表由单写者 worker 落库，HTTP 路径不写 learn_progress。"
+        "接口级配额 2 次/分钟/课时，超限返回 429 RATE_LIMITED（data.retry_after）。"
     ),
     request=ProgressIn,
     response=ProgressOut,
@@ -218,6 +219,7 @@ def report_progress() -> tuple[Response, int]:
     lesson_id = body.get("lesson_id")
     if isinstance(lesson_id, bool) or not isinstance(lesson_id, int) or lesson_id < 1:
         raise AppError(VALIDATION_FAILED, data={"errors": ["lesson_id 必须是正整数"]})
+    current_app.extensions["zhy_progress"].check_quota(user_id=user.id, lesson_id=lesson_id)
     result = record(
         user_id=user.id,
         lesson_id=lesson_id,

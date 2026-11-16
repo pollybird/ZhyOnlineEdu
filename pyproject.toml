@@ -1,7 +1,7 @@
 [project]
 name = "zhyonlineedu"
 # 版本号与 zhyonlineedu/__init__.py 的 __version__ 同步（规则见 README「版本号规则」）
-version = "0.3.9-alpha"
+version = "0.4.1-alpha"
 description = "钟毓在线教育系统（ZhyOnlineEdu）内核 —— 多库适配 / 双场景模式 / 插件化"
 requires-python = ">=3.11"
 # 生产以 uv.lock 精确锁定，禁用范围符（附录 F）
@@ -12,14 +12,13 @@ dependencies = [
     "alembic==1.16.*",
     "Pydantic==2.*",
     "PyJWT==2.*",
-    "cryptography==43.*",  # RS256 密钥生成与验签（PyJWT[crypto] 的底层）
+    "cryptography==50.*",  # RS256 密钥生成与验签（PyJWT[crypto] 的底层）
     "argon2-cffi==25.*",
     "boto3==1.*",
     "redis[hiredis]==5.*",
     "psutil==7.*",
     "openpyxl==3.*",
     "ffmpeg-python==0.2.*",
-    "opentelemetry-api==1.*",
     "gunicorn==23.*",
 ]
 
@@ -102,4 +101,5 @@ markers = [
     "hbt: 心跳/进度网关用例（HBT-001~006）",
     "media: 票据与播放链路用例（MEDIA-001~008）",
     "sandbox: 转码沙箱用例（SANDBOX-001~006）",
+    "security: 安全渗透自测（沙箱逃逸/票据重放/进度篡改 · M4.1）",
 ]
