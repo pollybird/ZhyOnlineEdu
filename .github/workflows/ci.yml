@@ -123,10 +123,10 @@ jobs:
       # FFmpeg 与 PyPI 分开扫描：uv.lock + deploy/ffmpeg/zhy-ffmpeg-sbom.json
       # 例外项在同目录 osv-scanner.toml 中登记（仅开发期工具链）。
       - name: osv-scanner（uv.lock + FFmpeg SBOM）
-        uses: google/osv-scanner-action/osv-scanner-action@v2
+        uses: google/osv-scanner-action/osv-scanner-action@v2.7.1
         with:
           scan-args: |-
-            -r
+            --recursive
             ./
 
   gate:
