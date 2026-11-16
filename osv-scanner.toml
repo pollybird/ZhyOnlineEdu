@@ -22,3 +22,17 @@ ignoreUntil = 2027-06-30
 id = "PYSEC-2026-1845"
 reason = "pytest 仅开发期测试工具，不随运行镜像分发；升级窗口见 ignoreUntil"
 ignoreUntil = 2027-06-30
+
+# ── npm（web/package-lock.json，仅构建/测试工具链的传递依赖）──
+# glob / minimatch 由 js-beautify → editorconfig 链引入，只参与前端构建与单测，
+# 不进入 dist 产物；上游尚未发布使用修复版 glob 14 / minimatch 11 的版本。
+[[IgnoredVulns]]
+id = "GHSA-3g3m-2fjr-6pw4"
+reason = "glob 13 为前端构建工具链传递依赖，不进 dist；等 js-beautify 升级后再移除"
+ignoreUntil = 2027-06-30
+
+[[IgnoredVulns]]
+id = "GHSA-g3hv-75wg-m249"
+reason = "minimatch 10 为前端构建工具链传递依赖，不进 dist；等 js-beautify 升级后再移除"
+ignoreUntil = 2027-06-30
+
